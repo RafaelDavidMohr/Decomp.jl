@@ -4,8 +4,8 @@ const POL = gfp_mpoly
 const POLR = GFPMPolyRing
 const POLI = MPolyIdeal{POL}
 
-function msolve_saturate(I::POLI, f::POL;
-                         infolevel = 0)
+function msolve_saturate_elim(I::POLI, f::POL;
+                              infolevel = 0)
 
     R = base_ring(I)
     S, vars = PolynomialRing(base_ring(R), pushfirst!(["y$(i)" for i in 1:ngens(R)], "t"))
@@ -16,8 +16,8 @@ function msolve_saturate(I::POLI, f::POL;
     return ideal(R, [elim_hom(p) for p in gb])
 end
 
-function msolve_colon(I::POLI, f::POL;
-                      infolevel = 0)
+function msolve_colon_elim(I::POLI, f::POL;
+                           infolevel = 0)
 
     R = base_ring(I)
     S, vars = PolynomialRing(base_ring(R), pushfirst!(["y$(i)" for i in 1:ngens(R)], "t"))

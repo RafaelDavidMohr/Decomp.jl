@@ -32,7 +32,7 @@ function inter!(node::DecompNode)
 
     f = popfirst!(node.remaining)
     println("intersecting with $f over component with $(length(node.nonzero)) nz conditions")
-    G = anncashed!(node, f, thisisakeyword = true)
+    G = anncashed!(node, f, onlyneedone = true)
 
     if isempty(G)
         # f regular
@@ -42,24 +42,13 @@ function inter!(node::DecompNode)
         # f vanishes
         println("vanishes")
         return [node]
-    else
+    else # we split
         for g in G
             H = anncashed!(node, g)
             iszero(total_degree(first(H))) && continue
             println("splitting along $(g)")
             reduce_generators_size!(node.ideal, H)
 
-            # processed_degrees = Int[]
-            # H_new = POL[]
-            # R = base_ring(node.ideal)
-            # for h in H
-            #     d = total_degree(h)
-            #     d in processed_degrees && continue
-            #     H_d = filter(q -> total_degree(q) == d, H)
-            #     H_d_new = [random_lin_comb(R, H_d) for _ in 1:length(H_d)]
-            #     append!(H_new, H_d_new)
-            #     push!(processed_degrees, d)
-            # end
             println("$(length(H)) zero divisors")
             new_nodes = nonzero_presplit!(node, H, f)
             high_dim = zero!(node, H)
@@ -185,7 +174,7 @@ function findpreviousann(node::DecompNode, f::POL)
     end
 end
 
-function anncashed!(node::DecompNode, f::POL; thisisakeyword = false)
+function anncashed!(node::DecompNode, f::POL; onlyneedone = false)
     onlynz, prev, nd = findpreviousann(node, f)
     res = POL[]
     if isnothing(prev)
@@ -193,15 +182,10 @@ function anncashed!(node::DecompNode, f::POL; thisisakeyword = false)
         res = ann!(node.ideal, node.ideal, f)
     elseif nd == node
         return prev
-    elseif onlynz
-        # only normal form
-        if thisisakeyword
-            dynamicgb!(node.ideal)
-            res = normal_form(prev, node.ideal)]
-        else
-            R = base_ring(node.ideal)
-            res = ann!(node.ideal, node.ideal + ideal(R, prev), f)
-        end
+    elseif onlynz && onlyneedone
+        # only normal form if we just need any zero divisor
+        dynamicgb!(node.ideal)
+        res = normal_form(prev, node.ideal)
         filter!(p -> !iszero(p), res)
     else
         R = base_ring(node.ideal)
@@ -247,19 +231,17 @@ function reduce_generators_size!(I::POLI,
     sort!(gens_over_I, by = p -> total_degree(p))
     indices_redundant_elements = Int[]
     J = I
-    idls = [J]
     for (i, p) in enumerate(gens_over_I)
         i in indices_redundant_elements && continue
         J = J + ideal(R, [p])
         f4(J)
-        push!(idls, J)
         for (j, q) in enumerate(gens_over_I[i+1:end])
             j in indices_redundant_elements && continue
             q in J && push!(indices_redundant_elements, j + i)
         end
     end
     deleteat!(gens_over_I, sort(unique(indices_redundant_elements)))
-    return idls[1:end - 1]
+    return
 end
 
 end # module Decomp
