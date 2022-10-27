@@ -1,11 +1,15 @@
 module Decomp
 
-include("oscar_util.jl")
-using AbstractTrees
+using Reexport
+@reexport using Oscar
+@reexport using AbstractTrees
 
-export decomp
+include("oscar_util.jl")
+
+export decomp, extract_ideals
 
 mutable struct DecompNode
+    reg_seq::Vector{POL}
     ideal::POLI
     nonzero::Vector{POL}
     remaining::Vector{POL}
@@ -15,6 +19,18 @@ mutable struct DecompNode
     nonzero_children::Vector{DecompNode}
     zero_children::Vector{DecompNode}
 end
+
+function Base.show(io::IO, node::DecompNode)
+    R = base_ring(node.ideal)
+    if R(1) in node.ideal
+        print(io, "empty component")
+    else
+        print(io, """codim $(length(node.reg_seq)),
+                     reg seq lms $([leading_monomial(p) for p in node.reg_seq]),
+                     nonzero lms: $([leading_monomial(h) for h in node.nonzero])""")
+    end
+end
+
 
 AbstractTrees.childtype(::DecompNode) = DecompNode
 
@@ -37,7 +53,7 @@ function inter!(node::DecompNode)
     if isempty(G)
         # f regular
         println("is regular")
-        return [zero!(node, [f])]
+        return [zero!(node, [f], [f])]
     elseif iszero(total_degree(first(G)))
         # f vanishes
         println("vanishes")
@@ -57,6 +73,7 @@ function inter!(node::DecompNode)
             return res
         end
     end
+    error("we have run into a case that I am currently unsure how to handle.")
     return DecompNode[]
 end
 
@@ -70,7 +87,7 @@ function decomp(sys::Vector{POL})
     F = hom(R, sat_ring, vars[2:end])
     F_inv = hom(sat_ring, R, [zero(R), gens(R)...])
     
-    initial_node = DecompNode(ideal(sat_ring, F(first(sys))),
+    initial_node = DecompNode([F(first(sys))], ideal(sat_ring, F(first(sys))),
                               POL[], [F(p) for p in sys[2:end]],
                               nothing, true, Dict{POL, Vector{POL}}(),
                               DecompNode[], DecompNode[])
@@ -89,7 +106,7 @@ function decomp(sys::Vector{POL})
             break
         end
     end
-
+    
     @assert all(nd -> isempty(nd.remaining), Leaves(initial_node))
     
     res = POLI[]
@@ -100,20 +117,22 @@ function decomp(sys::Vector{POL})
         idl = ideal(R, [F_inv(p) for p in gens(lv.ideal)])
         gb = f4(idl, complete_reduction = true)
         println("number of terms in gb: $(sum([length(monomials(p)) for p in gb]))")
-        println("codimension: $(ngens(R) - dim(idl))")
+        println("codimension: $(length(lv.reg_seq))")
         push!(res, idl)
     end
         
-    return res
+    return initial_node
 end
 
-function zero!(node::DecompNode, P::Vector{POL})
+function zero!(node::DecompNode, P::Vector{POL},
+               append_to_req_seq::Vector{POL} = POL[])
     R = base_ring(node.ideal)
     new_idl = node.ideal + ideal(R, P)
     for h in node.nonzero
         new_idl = msolve_saturate(new_idl, h)
     end
-    new_node = DecompNode(new_idl, copy(node.nonzero), copy(node.remaining),
+    new_node = DecompNode(vcat(node.reg_seq, append_to_req_seq), new_idl,
+                          copy(node.nonzero), copy(node.remaining),
                           node, false, Dict{POL, Vector{POL}}(), DecompNode[],
                           DecompNode[])
     push!(node.zero_children, new_node)
@@ -124,7 +143,7 @@ function nonzero!(node::DecompNode, p::POL)
     R = base_ring(node.ideal)
     new_pols = anncashed!(node, p)
     new_idl = node.ideal + ideal(R, new_pols)
-    new_node = DecompNode(new_idl, vcat(node.nonzero, [p]), copy(node.remaining),
+    new_node = DecompNode(copy(node.reg_seq), new_idl, vcat(node.nonzero, [p]), copy(node.remaining),
                           node, true, Dict{POL, Vector{POL}}(), DecompNode[],
                           DecompNode[])
     push!(node.nonzero_children, new_node)
@@ -138,7 +157,6 @@ function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
                      println("setting $(p) nonzero")
                      nonzero!(node, p)
                  end for p in P]
-    res = DecompNode[]
     println("presplitting")
     annis = Dict([(P[i], anncashed!(node, P[i])) for i in 1:length(P)])
     for (i, p) in enumerate(P)
@@ -148,17 +166,15 @@ function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
         for (j, q) in enumerate(P[1:i-1])
             if all(f -> iszero(f), normal_form(annis[q], new_nodes[i].ideal))
                 println("regular intersection with $(j)th q detected")
-                push!(P1, q)
+                new_nodes[i] = zero!(new_nodes[i], [q], [q])
             else
                 push!(P2, q)
             end
         end
-        new_nd = zero!(new_nodes[i], P1)
-        push!(res, new_nd)
-        pushfirst!(new_nd.remaining, f)
-        prepend!(new_nd.remaining, P2)
+        pushfirst!(new_nodes[i].remaining, f)
+        prepend!(new_nodes[i].remaining, P2)
     end
-    return res
+    return new_nodes
 end
 
 function findpreviousann(node::DecompNode, f::POL)
@@ -202,7 +218,7 @@ function ann!(idl::POLI, base::POLI, f::POL)
 
     sat_ideal = msolve_saturate(base, f)
     dynamicgb!(idl)
-    res = normal_form[gens(sat_ideal), idl]
+    res = normal_form(gens(sat_ideal), idl)
     return filter!(p -> !iszero(p), res)
 end
 
@@ -244,4 +260,11 @@ function reduce_generators_size!(I::POLI,
     return
 end
 
-end # module Decomp
+#--- User utility functions ---#
+
+function extract_ideals(node::DecompNode)
+    R = base_ring(node.ideal)
+    [nd.ideal for nd in Leaves(node) if !(R(1) in nd.ideal)]
+end
+
+end

@@ -1,5 +1,3 @@
-using Oscar
-
 const POL = gfp_mpoly
 const POLR = GFPMPolyRing
 const POLI = MPolyIdeal{POL}
