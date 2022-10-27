@@ -1,0 +1,8 @@
+name = "Decomp"
+uuid = "b39c9e78-936e-4adc-9702-ca06fe08aae9"
+authors = ["Rafael Mohr <Rafael.Mohr@lip6.fr>"]
+version = "0.1.0"
+
+[deps]
+AbstractTrees = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
+Oscar = "f1435218-dba5-11e9-1e4d-f1a5fab5fc13"
