@@ -106,9 +106,7 @@ function decomp(sys::Vector{POL})
             break
         end
     end
-    
-    @assert all(nd -> isempty(nd.remaining), Leaves(initial_node))
-    
+        
     res = POLI[]
     println("-----------")
     println("final components:")
@@ -121,7 +119,7 @@ function decomp(sys::Vector{POL})
         push!(res, idl)
     end
         
-    return initial_node
+    return initial_node, F_inv
 end
 
 function zero!(node::DecompNode, P::Vector{POL},
@@ -158,13 +156,13 @@ function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
                      nonzero!(node, p)
                  end for p in P]
     println("presplitting")
-    annis = Dict([(P[i], anncashed!(node, P[i])) for i in 1:length(P)])
     for (i, p) in enumerate(P)
         println("presplitting along $(i)th p")
         P1 = POL[]
         P2 = POL[]
         for (j, q) in enumerate(P[1:i-1])
-            if all(f -> iszero(f), normal_form(annis[q], new_nodes[i].ideal))
+            anni = anncashed!(new_nodes[i], q)
+            if isempty(anni)
                 println("regular intersection with $(j)th q detected")
                 new_nodes[i] = zero!(new_nodes[i], [q], [q])
             else
@@ -227,7 +225,11 @@ function msolve_saturate(idl::POLI, f::POL)
     vars = gens(R)
     J = ideal(R, [gens(idl)..., vars[1]*f - 1])
     gb = f4(J, eliminate = 1, complete_reduction = true)
-    return ideal(R, gb)
+    if typeof(gb) <: Oscar.IdealGens
+        return ideal(R, gb.gens.O)
+    else
+        return ideal(R, gb)
+    end
 end
     
 function dynamicgb!(I::POLI)
@@ -262,9 +264,11 @@ end
 
 #--- User utility functions ---#
 
-function extract_ideals(node::DecompNode)
-    R = base_ring(node.ideal)
-    [nd.ideal for nd in Leaves(node) if !(R(1) in nd.ideal)]
+function extract_ideals(node::DecompNode, hom)
+    R = codomain(hom)
+    S = domain(hom)
+    [ideal(R, (p->hom(p)).(gens(nd.ideal))) for nd in Leaves(node)]
+#    for nd in Leaves(node) if !(S(1) in nd.ideal)]
 end
 
 end
