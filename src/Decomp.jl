@@ -151,24 +151,33 @@ end
 function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
 
     isempty(P) && return DecompNode[]
-    new_nodes = [begin
-                     println("setting $(p) nonzero")
-                     nonzero!(node, p)
-                 end for p in P]
+    new_nodes = [node for p in P]
+    d = dim(node.ideal)
+    R = base_ring(node.ideal)
+    sample_points = node.ideal + ideal(R, [random_lin_comb(R, gens(R)) for _ in 1:d])
     println("presplitting")
     for (i, p) in enumerate(P)
-        println("presplitting along $(i)th p")
+        println("computing sample points for $(i)th p")
+        sample_points_p_nonzero = msolve_saturate(sample_points, p)
         P1 = POL[]
         P2 = POL[]
+        curr_dim = d
         for (j, q) in enumerate(P[1:i-1])
-            anni = anncashed!(new_nodes[i], q)
-            if isempty(anni)
-                println("regular intersection with $(j)th q detected")
-                new_nodes[i] = zero!(new_nodes[i], [q], [q])
+            println("treating $(j)th nonzero condition")
+            if R(1) in (sample_points_p_nonzero + ideal(R, q))
+                println("regular intersection detected, recomputing sample points...")
+                push!(P1, q)
+                sample_points_p_nonzero = 
+                    sum([node.ideal, ideal(R, q),
+                         ideal(R, [random_lin_comb(R, gens(R)) for _ in 1:(curr_dim - 1)])])
+                curr_dim -= 1
+                sample_points_p_nonzero = msolve_saturate(sample_points_p_nonzero, p)
             else
                 push!(P2, q)
             end
         end
+        println("setting nonzero")
+        new_nodes[i] = nonzero!(zero!(node, P1, P1), p)
         pushfirst!(new_nodes[i].remaining, f)
         prepend!(new_nodes[i].remaining, P2)
     end
@@ -205,7 +214,7 @@ function anncashed!(node::DecompNode, f::POL; onlyneedone = false)
         R = base_ring(node.ideal)
         res = ann!(node.ideal, node.ideal + ideal(R, prev), f)
     end
-    sort!(res, by = p -> total_degree(p))
+    sort!(res, lt = (p1, p2) -> total_degree(p1) < total_degree(p2) || total_degree(p1) == total_degree(p2) && length(monomials(p1)) < length(monomials(p2)))
     node.ann_cashe[f] = res
     return res
 end
