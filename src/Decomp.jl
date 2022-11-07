@@ -152,26 +152,33 @@ function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
 
     isempty(P) && return DecompNode[]
     new_nodes = [node for p in P]
-    d = dim(node.ideal)
     R = base_ring(node.ideal)
-    sample_points = node.ideal + ideal(R, [random_lin_comb(R, gens(R)) for _ in 1:d])
+    d = dim(node.ideal) - 1
     println("presplitting")
     for (i, p) in enumerate(P)
         println("computing sample points for $(i)th p")
-        sample_points_p_nonzero = msolve_saturate(sample_points, p)
+        sample_points_p_nonzero = sample_points(node.ideal, vcat(node.nonzero, [p]), d)
+        if R(1) in sample_points_p_nonzero
+            println(R(1) in msolve_saturate(sample_points(node.ideal, node.nonzero, d), p))
+            error("something going wrong")
+        end
         P1 = POL[]
         P2 = POL[]
         curr_dim = d
         for (j, q) in enumerate(P[1:i-1])
             println("treating $(j)th nonzero condition")
             if R(1) in (sample_points_p_nonzero + ideal(R, q))
+                # TODO: catch the case where the component actually becomes empty
                 println("regular intersection detected, recomputing sample points...")
                 push!(P1, q)
-                sample_points_p_nonzero = 
-                    sum([node.ideal, ideal(R, q),
-                         ideal(R, [random_lin_comb(R, gens(R)) for _ in 1:(curr_dim - 1)])])
                 curr_dim -= 1
-                sample_points_p_nonzero = msolve_saturate(sample_points_p_nonzero, p)
+                sample_points_p_nonzero = sample_points(node.ideal + ideal(R, P1),
+                                                        vcat(node.nonzero, [p]),
+                                                        curr_dim)
+                if R(1) in sample_points_p_nonzero
+                    println("component is empty, going to next equation")
+                    break
+                end
             else
                 push!(P2, q)
             end
@@ -182,6 +189,16 @@ function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
         prepend!(new_nodes[i].remaining, P2)
     end
     return new_nodes
+end
+
+function sample_points(I::POLI, nonzero::Vector{POL}, d::Int)
+    R = base_ring(I)
+    # do not incorporate the eliminating variable
+    result = I + ideal(R, [random_lin_comb(R, [gens(R)[2:end]..., R(1)]) for _ in 1:d])
+    for h in nonzero
+        result = msolve_saturate(result, h)
+    end
+    return result
 end
 
 function findpreviousann(node::DecompNode, f::POL)
