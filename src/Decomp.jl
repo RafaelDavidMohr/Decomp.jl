@@ -44,7 +44,8 @@ AbstractTrees.parent(node::DecompNode) = node.parent
 AbstractTrees.NodeType(::Type{DecompNode}) = HasNodeType()
 AbstractTrees.nodetype(::Type{DecompNode}) = DecompNode
 
-function inter!(node::DecompNode)
+function inter!(node::DecompNode;
+                version = "probabilistic")
 
     f = popfirst!(node.remaining)
     println("intersecting with $f over component with $(length(node.nonzero)) nz conditions")
@@ -66,7 +67,11 @@ function inter!(node::DecompNode)
             reduce_generators_size!(node.ideal, H)
 
             println("$(length(H)) zero divisors")
-            new_nodes = nonzero_presplit!(node, H, f)
+            if version == "probabilistic"
+                new_nodes = nonzero_presplit!(node, H, f)
+            else
+                new_nodes = nonzero_presplit_deterministic!(node, H, f)
+            end
             high_dim = zero!(node, H)
             res = vcat([high_dim], new_nodes)
             println("$(length(res)) new components")
@@ -77,7 +82,8 @@ function inter!(node::DecompNode)
     return DecompNode[]
 end
 
-function decomp(sys::Vector{POL})
+function decomp(sys::Vector{POL};
+                version = "probabilistic")
 
     isempty(sys) && error("system is empty")
     
@@ -100,7 +106,7 @@ function decomp(sys::Vector{POL})
                 empty!(node.remaining)
                 continue
             end
-            inter!(node)
+            inter!(node, version = version)
             all_processed = all(nd -> isempty(nd.remaining),
                                 Leaves(initial_node))
             break
@@ -159,8 +165,8 @@ function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
         println("computing sample points for $(i)th p")
         sample_points_p_nonzero = sample_points(node.ideal, vcat(node.nonzero, [p]), d)
         if R(1) in sample_points_p_nonzero
-            println(R(1) in msolve_saturate(sample_points(node.ideal, node.nonzero, d), p))
-            error("something going wrong")
+            println("component is empty, going to next equation")
+            break
         end
         P1 = POL[]
         P2 = POL[]
@@ -185,6 +191,33 @@ function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
         end
         println("setting nonzero")
         new_nodes[i] = nonzero!(zero!(node, P1, P1), p)
+        pushfirst!(new_nodes[i].remaining, f)
+        prepend!(new_nodes[i].remaining, P2)
+    end
+    return new_nodes
+end
+
+function nonzero_presplit_deterministic!(node::DecompNode, P::Vector{POL}, f::POL)
+
+    isempty(P) && return DecompNode[]
+    new_nodes = [begin
+                     println("setting $(p) nonzero")
+                     nonzero!(node, p)
+                 end for p in P]
+    println("presplitting")
+    for (i, p) in enumerate(P)
+        println("presplitting along $(i)th p")
+        P1 = POL[]
+        P2 = POL[]
+        for (j, q) in enumerate(P[1:i-1])
+            anni = anncashed!(new_nodes[i], q)
+            if isempty(anni)
+                println("regular intersection with $(j)th q detected")
+                new_nodes[i] = zero!(new_nodes[i], [q], [q])
+            else
+                push!(P2, q)
+            end
+        end
         pushfirst!(new_nodes[i].remaining, f)
         prepend!(new_nodes[i].remaining, P2)
     end
@@ -251,11 +284,7 @@ function msolve_saturate(idl::POLI, f::POL)
     vars = gens(R)
     J = ideal(R, [gens(idl)..., vars[1]*f - 1])
     gb = f4(J, eliminate = 1, complete_reduction = true)
-    if typeof(gb) <: Oscar.IdealGens
-        return ideal(R, gb.gens.O)
-    else
-        return ideal(R, gb)
-    end
+    return ideal(R, gb)
 end
     
 function dynamicgb!(I::POLI)
@@ -293,8 +322,7 @@ end
 function extract_ideals(node::DecompNode, hom)
     R = codomain(hom)
     S = domain(hom)
-    [ideal(R, (p->hom(p)).(gens(nd.ideal))) for nd in Leaves(node)]
-#    for nd in Leaves(node) if !(S(1) in nd.ideal)]
+    filter!(idl -> !(R(1) in idl), [ideal(R, (p->hom(p)).(gens(nd.ideal))) for nd in Leaves(node)])
 end
 
 end
