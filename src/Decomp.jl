@@ -171,10 +171,10 @@ function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
         P1 = POL[]
         P2 = POL[]
         curr_dim = d
-        for (j, q) in enumerate(P[1:i-1])
-            println("treating $(j)th nonzero condition")
+        rem = vcat(P[1:i-1], [f], node.remaining) 
+        for (j, q) in enumerate(rem)
+            println("treating $(j)th remaining equation")
             if R(1) in (sample_points_p_nonzero + ideal(R, q))
-                # TODO: catch the case where the component actually becomes empty
                 println("regular intersection detected, recomputing sample points...")
                 push!(P1, q)
                 curr_dim -= 1
@@ -186,13 +186,17 @@ function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
                     break
                 end
             else
-                push!(P2, q)
+                if j > i-1
+                    append!(P2, rem[j:end])
+                    break
+                else
+                    push!(P2, q)
+                end
             end
         end
         println("setting nonzero")
         new_nodes[i] = nonzero!(zero!(node, P1, P1), p)
-        pushfirst!(new_nodes[i].remaining, f)
-        prepend!(new_nodes[i].remaining, P2)
+        new_nodes[i].remaining = copy(P2)
     end
     return new_nodes
 end
@@ -283,7 +287,7 @@ function msolve_saturate(idl::POLI, f::POL)
     R = base_ring(idl)
     vars = gens(R)
     J = ideal(R, [gens(idl)..., vars[1]*f - 1])
-    gb = f4(J, eliminate = 1, complete_reduction = true)
+    gb = f4(J, eliminate = 1, complete_reduction = true, la_option = 42)
     return ideal(R, gb)
 end
     
