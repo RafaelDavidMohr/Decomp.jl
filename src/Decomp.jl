@@ -1,12 +1,13 @@
 module Decomp
 
+using Base: @assume_effects
 using Reexport
 @reexport using Oscar
 @reexport using AbstractTrees
 
 include("oscar_util.jl")
 
-export decomp, extract_ideals
+export decomp, extract_ideals, kalk_decomp
 
 mutable struct DecompNode
     reg_seq::Vector{POL}
@@ -66,7 +67,8 @@ function inter!(node::DecompNode;
             println("splitting along $(g)")
             reduce_generators_size!(node.ideal, H)
 
-            println("$(length(H)) zero divisors")
+            println("$(length(H)) zero divisors:")
+            println(H)
             if version == "probabilistic"
                 new_nodes = nonzero_presplit!(node, H, f)
             else
@@ -162,6 +164,7 @@ function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
     d = dim(node.ideal) - 1
     println("presplitting")
     for (i, p) in enumerate(P)
+        println("nonzero condition: $(p)")
         println("computing sample points for $(i)th p")
         sample_points_p_nonzero = sample_points(node.ideal, vcat(node.nonzero, [p]), d)
         if R(1) in sample_points_p_nonzero
@@ -278,7 +281,7 @@ end
 function ann!(idl::POLI, base::POLI, f::POL)
 
     sat_ideal = msolve_saturate(base, f)
-    dynamicgb!(idl)
+#    dynamicgb!(idl)
     res = normal_form(gens(sat_ideal), idl)
     return filter!(p -> !iszero(p), res)
 end
@@ -287,7 +290,7 @@ function msolve_saturate(idl::POLI, f::POL)
     R = base_ring(idl)
     vars = gens(R)
     J = ideal(R, [gens(idl)..., vars[1]*f - 1])
-    gb = f4(J, eliminate = 1, complete_reduction = true, la_option = 42)
+    gb = f4(J, eliminate = 1, complete_reduction = true)
     return ideal(R, gb)
 end
     
@@ -320,6 +323,185 @@ function reduce_generators_size!(I::POLI,
     deleteat!(gens_over_I, sort(unique(indices_redundant_elements)))
     return
 end
+#--- Kalkbrener Decomposition ---#
+
+struct NzCond
+    p::POL
+    order::Int
+end
+
+mutable struct KalkComp
+    eqns::Vector{POL}
+    nz_cond::Vector{NzCond}
+    nz_processed::Vector{Int}
+    ideal::POLI
+    remaining::Vector{POL}
+end
+
+function Base.show(io::IO, comp::KalkComp)
+    R = base_ring(comp.ideal)
+    if R(1) in comp.ideal
+        print(io, "empty component")
+    else
+        print(io, """codim $(ngens(base_ring(comp.ideal)) - 1 - dim(comp.ideal)),
+                     eqns $(comp.eqns),
+                     nonzero $([P.p for P in comp.nz_cond])""")
+    end
+end
+
+function copycomp(comp::KalkComp)
+    return KalkComp(copy(comp.eqns), copy(comp.nz_cond),
+                    copy(comp.nz_processed),
+                    comp.ideal, copy(comp.remaining))
+end
+
+# TODO: where to produce the extra components?
+function kalk_decomp(sys::Vector{POL})
+
+    isempty(sys) && error("system is empty")
+    
+    R = parent(first(sys))
+    sat_ring, vars = PolynomialRing(base_ring(R),
+                                    pushfirst!(["y$(i)" for i in 1:ngens(R)], "t"))
+    F = hom(R, sat_ring, vars[2:end])
+    F_inv = hom(sat_ring, R, [zero(R), gens(R)...])
+    
+    initial_component = KalkComp([F(first(sys))], NzCond[], Int[],
+                                 ideal(sat_ring, F(first(sys))),
+                                 (F).(sys[2:end]))
+
+    comp_queue = [initial_component]
+    done = KalkComp[]
+
+    while !isempty(comp_queue)
+        component = pop!(comp_queue)
+        comps = process_nonzero(component)
+        for comp in comps
+            if sat_ring(1) in comp.ideal
+                continue
+            end
+            if isempty(comp.remaining)
+                push!(done, comp)
+                continue
+            end
+            components = kalk_split!(comp)
+            comp_queue = vcat(comp_queue, components)
+        end
+    end
+        
+    res = POLI[]
+    println("final components:")
+    for comp in done
+        gb = f4(comp.ideal, complete_reduction = true)
+        println("number of terms in gb: $(sum([length(monomials(p)) for p in gb]))")
+        println("codimension: $(ngens(R) - dim(comp.ideal))")
+    end
+        
+    return done
+end
+
+function process_nonzero(comp::KalkComp)
+    # TODO: this is inefficient, every nonzero condition of order 1 is
+    # processed twice
+    todo = [comp]
+    done = KalkComp[]
+    while !isempty(todo)
+        component = popfirst!(todo)
+        if length(component.nz_processed) == length(component.nz_cond)
+            push!(done, component)
+            continue
+        end
+        for (i, p) in enumerate(component.nz_cond)
+            i in component.nz_processed && continue
+            if !isone(p.order)
+                component.ideal = msolve_saturate(component.ideal, p.p)
+                push!(component.nz_processed, i)
+                continue
+            end
+            new_base_comp = copycomp(component)
+            deleteat!(new_base_comp.nz_cond, i)
+            for (k, j) in enumerate(new_base_comp.nz_processed)
+                if j > i
+                    new_base_comp.nz_processed[k] -= 1
+                end
+            end
+            component.ideal = msolve_saturate(component.ideal,
+                                              component.nz_cond[i].p)
+            push!(component.nz_processed, i)
+            H = filter(h -> !(h in new_base_comp.ideal), gens(component.ideal))
+            if isempty(H)
+                push!(done, component)
+                continue
+            end
+            new_comps = kalk_nonzero(new_base_comp, H, component.nz_cond[i].p)
+            todo = vcat(todo, new_comps)
+            push!(todo, component)
+        end
+    end
+    return done
+end
+
+function kalk_split!(comp::KalkComp)
+
+    R = base_ring(comp.ideal)
+    g = zero(R)
+    f = popfirst!(comp.remaining)
+    println("checking regularity of $(f)")
+    sat_by_f = msolve_saturate(comp.ideal, f)
+    for p in gens(sat_by_f)
+        if !(p in comp.ideal)
+            g = p
+            break
+        end
+    end
+    if isone(g)
+        println("vanishes entirely")
+        println("----")
+        return [comp]
+    elseif iszero(g)
+        println("is regular")
+        push!(comp.eqns, f)
+        comp.ideal = comp.ideal + ideal(base_ring(comp.ideal), f)
+        empty!(comp.nz_processed)
+        println("----")
+        return [comp]
+    end
+
+    println("splitting along $(g)")
+    comp1 = copycomp(comp)
+    kalk_nonzero!(comp1, g, 1)
+    H = filter(h -> !(h in comp.ideal), gens(comp1.ideal))
+    println("setting $(length(H)) elements nonzero")
+    new_comps = kalk_nonzero(comp, H, g)
+    for new_comp in new_comps
+        pushfirst!(new_comp.remaining, f)
+    end
+    return vcat(new_comps, [comp1])
+end
+
+function kalk_nonzero!(comp::KalkComp, h::POL, order::Int)
+    push!(comp.nz_processed, length(comp.nz_cond) + 1)
+    push!(comp.nz_cond, NzCond(h, order))
+    comp.ideal = msolve_saturate(comp.ideal, h)
+end
+    
+function kalk_nonzero(comp::KalkComp, H::Vector{POL}, known_zd::POL)
+    R = base_ring(comp.ideal)
+    res = [copycomp(comp) for _ in H]
+    P = POL[]
+    for (i, h) in enumerate(H)
+        println("saturating by $(i)th h")
+        kalk_nonzero!(res[i], h, 2)
+        for (j, p) in enumerate(P)
+            println("saturating by $(j)th p")
+            res[i].ideal = msolve_saturate(res[i].ideal, p)
+        end
+        push!(P, random_lin_comb(R, gens(res[i].ideal)))
+    end
+    println("----")
+    return res
+end
+
 
 #--- User utility functions ---#
 

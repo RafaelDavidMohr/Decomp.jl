@@ -42,3 +42,60 @@ function cyclic(vars)
     push!(pols, prod(vars[i] for i in 1:n)-1)
     return pols
 end
+
+function test_other_split(I::POLI, H::Vector{POL})
+    R = base_ring(I)
+    res = POLI[]
+    P = POL[]
+    sizehint!(res, length(H))
+    sizehint!(res, length(H))
+    curr_ideal = I
+    for (i, h) in enumerate(H)
+        println("saturating by $(i)th h")
+        component = msolve_saturate_elim(curr_ideal, h)
+        for (j, p) in enumerate(P)
+            println("saturating by $(j)th p")
+            println(p)
+            component = msolve_saturate_elim(component, p)
+        end
+        push!(res, component)
+        curr_ideal = curr_ideal + ideal(R, h)
+        println(curr_ideal)
+        push!(P, random_lin_comb(R, gens(component)))
+        println("-------")
+    end
+    return res
+end
+
+function check_decomp(I::POLI,
+                      comps::Vector{POLI})
+
+    R = base_ring(I)
+    println("checking result, this may take a while...")
+    println("checking if I is contained in the intersection:")
+    res1 = all(comp -> radical_contained_in(comp, I), comps)
+    println(res1)
+    println("checking if the intersection is contained in I:")
+    sort!(comps, by = J -> dim(J), rev = true)
+    J = I
+    for idl in comps
+        J = msolve_saturate_elim(J, q, random_lin_comb(R, gens(idl)))
+    end
+    res2 = R(1) in J
+    println(res2)
+    res = res1 && res2
+    return res
+end
+
+function radical_contained_in(I1::POLI, I2::POLI)
+
+    R = base_ring(I1)
+    f = random_lin_comb(R, gens(I2))
+    tes = msolve_saturate_elim(I1, f)
+    Base.iszero(normal_form(R(1), tes))
+end
+
+function radical_eq(I1::POLI, I2::POLI)
+    radical_contained_in(I1, I2) && radical_contained_in(I2, I1)
+end
+
