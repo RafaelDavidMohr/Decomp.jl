@@ -291,7 +291,7 @@ function msolve_saturate(idl::POLI, f::POL)
     vars = gens(R)
     J = ideal(R, [gens(idl)..., vars[1]*f - 1])
     gb = f4(J, eliminate = 1, complete_reduction = true)
-    return ideal(R, gb)
+    return ideal(R, gens(gb))
 end
     
 function dynamicgb!(I::POLI)
@@ -401,8 +401,6 @@ function kalk_decomp(sys::Vector{POL})
 end
 
 function process_nonzero(comp::KalkComp)
-    # TODO: this is inefficient, every nonzero condition of order 1 is
-    # processed twice
     todo = [comp]
     done = KalkComp[]
     while !isempty(todo)
@@ -430,12 +428,14 @@ function process_nonzero(comp::KalkComp)
             push!(component.nz_processed, i)
             H = filter(h -> !(h in new_base_comp.ideal), gens(component.ideal))
             if isempty(H)
-                push!(done, component)
                 continue
             end
             new_comps = kalk_nonzero(new_base_comp, H, component.nz_cond[i].p)
             todo = vcat(todo, new_comps)
             push!(todo, component)
+        end
+        if all(h -> !isone(h.order), component.nz_cond)
+            push!(done, component)
         end
     end
     return done
