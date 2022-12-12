@@ -400,6 +400,7 @@ function kalk_decomp(sys::Vector{POL})
     return done
 end
 
+# TODO: simplify this
 function process_nonzero(comp::KalkComp)
     todo = [comp]
     done = KalkComp[]
@@ -430,6 +431,7 @@ function process_nonzero(comp::KalkComp)
             if isempty(H)
                 continue
             end
+            reduce_generators_size!(component.ideal, H)
             new_comps = kalk_nonzero(new_base_comp, H, component.nz_cond[i].p)
             todo = vcat(todo, new_comps)
             push!(todo, component)
@@ -445,20 +447,28 @@ function kalk_split!(comp::KalkComp)
 
     R = base_ring(comp.ideal)
     g = zero(R)
+    H = POL[]
+    comp1 = copycomp(comp)
     f = popfirst!(comp.remaining)
     println("checking regularity of $(f)")
     sat_by_f = msolve_saturate(comp.ideal, f)
     for p in gens(sat_by_f)
         if !(p in comp.ideal)
+            if isone(p)
+                println("vanishes entirely")
+                println("----")
+                return [comp]
+            end
+            println("splitting along $(p)")
+            comp1 = copycomp(comp)
+            kalk_nonzero!(comp1, p, 1)
+            H = filter(h -> !(h in comp.ideal), gens(comp1.ideal))
+            R(1) in H && continue
             g = p
             break
         end
     end
-    if isone(g)
-        println("vanishes entirely")
-        println("----")
-        return [comp]
-    elseif iszero(g)
+    if iszero(g)
         println("is regular")
         push!(comp.eqns, f)
         comp.ideal = comp.ideal + ideal(base_ring(comp.ideal), f)
@@ -467,10 +477,7 @@ function kalk_split!(comp::KalkComp)
         return [comp]
     end
 
-    println("splitting along $(g)")
-    comp1 = copycomp(comp)
-    kalk_nonzero!(comp1, g, 1)
-    H = filter(h -> !(h in comp.ideal), gens(comp1.ideal))
+    reduce_generators_size!(comp.ideal, H)
     println("setting $(length(H)) elements nonzero")
     new_comps = kalk_nonzero(comp, H, g)
     for new_comp in new_comps
@@ -494,7 +501,7 @@ function kalk_nonzero(comp::KalkComp, H::Vector{POL}, known_zd::POL)
         kalk_nonzero!(res[i], h, 2)
         for (j, p) in enumerate(P)
             println("saturating by $(j)th p")
-            res[i].ideal = msolve_saturate(res[i].ideal, p)
+            kalk_nonzero!(res[i], p, 1)
         end
         push!(P, random_lin_comb(R, gens(res[i].ideal)))
     end
