@@ -6,7 +6,7 @@ function msolve_saturate_elim(I::POLI, f::POL;
                               infolevel = 0)
 
     R = base_ring(I)
-    S, vars = PolynomialRing(base_ring(R), pushfirst!(["y$(i)" for i in 1:ngens(R)], "t"))
+    S, vars = PolynomialRing(base_ring(R), pushfirst!(["y$(i)" for i in 1:ngens(R)], "s"))
     F = hom(R, S, vars[2:end])
     elim_hom = hom(S, R, pushfirst!(gens(R), R(0)))
     J = ideal(S, push!([F(p) for p in gens(I)], vars[1]*F(f) - 1))
