@@ -123,9 +123,9 @@ version = "1.6.0"
 
 [[deps.FLINT_jll]]
 deps = ["Artifacts", "GMP_jll", "JLLWrappers", "Libdl", "MPFR_jll", "OpenBLAS32_jll", "Pkg"]
-git-tree-sha1 = "34e110fb9bdaf16164ef8541d3d219554d796b01"
+git-tree-sha1 = "e246fc2836ce2ee27f34f2760f33db603af77fda"
 uuid = "e134572f-a0d5-539d-bddf-3cad8db41a82"
-version = "200.900.1+0"
+version = "200.900.4+0"
 
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
@@ -173,9 +173,9 @@ version = "0.4.0"
 
 [[deps.Hecke]]
 deps = ["AbstractAlgebra", "Dates", "Distributed", "InteractiveUtils", "LazyArtifacts", "Libdl", "LinearAlgebra", "Markdown", "Nemo", "Pkg", "Printf", "Profile", "Random", "RandomExtensions", "Requires", "Serialization", "SparseArrays", "Test"]
-git-tree-sha1 = "2cb4c43cc13123bf5c7be1072620ef7b7aac2c50"
+git-tree-sha1 = "433ba4b7248c7a8d85afd549598074c3e4cf33df"
 uuid = "3e1990a7-5d81-5526-99ce-9ba3ff248f21"
-version = "0.16.5"
+version = "0.16.6"
 
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
@@ -375,9 +375,9 @@ version = "1.2.1+0"
 
 [[deps.Parsers]]
 deps = ["Dates", "SnoopPrecompile"]
-git-tree-sha1 = "b64719e8b4504983c7fca6cc9db3ebc8acc2a4d6"
+git-tree-sha1 = "6466e524967496866901a78fca3f2e9ea445a559"
 uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
-version = "2.5.1"
+version = "2.5.2"
 
 [[deps.Perl_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg", "Readline_jll"]
@@ -599,9 +599,9 @@ version = "0.3.3+0"
 
 [[deps.msolve_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "FLINT_jll", "GMP_jll", "JLLWrappers", "LLVMOpenMP_jll", "Libdl", "Pkg"]
-git-tree-sha1 = "e3768f5d951cd371ff98a7520e911d0e15d451d0"
+git-tree-sha1 = "a6fe7a31d8121516317f974df963559306b59422"
 uuid = "6d01cc9a-e8f6-580e-8c54-544227e08205"
-version = "0.4.6+0"
+version = "0.4.7+0"
 
 [[deps.nauty_jll]]
 deps = ["Artifacts", "GMP_jll", "JLLWrappers", "Libdl", "Pkg"]

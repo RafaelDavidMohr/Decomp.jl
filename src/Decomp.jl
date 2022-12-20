@@ -290,7 +290,7 @@ function msolve_saturate(idl::POLI, f::POL)
     vars = gens(R)
     J = ideal(R, [gens(idl)..., vars[1]*f - 1])
     gb = f4(J, eliminate = 1, complete_reduction = true)
-    return ideal(R, gb.gens)
+    return ideal(R, gens(gb))
 end
     
 function dynamicgb!(I::POLI)
