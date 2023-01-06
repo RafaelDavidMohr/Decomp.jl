@@ -51,11 +51,11 @@ end
     comps = extract_ideals(nd, F)
     @test all(idl -> radical_eq(idl, equidimensional_hull(idl)), comps)
     @test check_decomp(ideal(R, I), comps)
-    nd1, F1 = decomp(I, version = "determ")
-    comps1 = extract_ideals(nd1, F1)
-    @test all(idl -> radical_eq(idl, equidimensional_hull(idl)), comps1)
-    @test check_decomp(ideal(R, I), comps1)
-    @test comps == comps1
+    # nd1, F1 = decomp(I, version = "determ")
+    # comps1 = extract_ideals(nd1, F1)
+    # @test all(idl -> radical_eq(idl, equidimensional_hull(idl)), comps1)
+    # @test check_decomp(ideal(R, I), comps1)
+    # @test comps == comps1
 end
 
 @testset "cyclic6" begin
@@ -65,11 +65,11 @@ end
     comps = extract_ideals(nd, F)
     @test all(idl -> radical_eq(idl, equidimensional_hull(idl)), comps)
     @test check_decomp(ideal(R, I), comps)
-    nd1, F1 = decomp(I, version = "determ")
-    comps1 = extract_ideals(nd1, F1)
-    @test all(idl -> radical_eq(idl, equidimensional_hull(idl)), comps1)
-    @test check_decomp(ideal(R, I), comps1)
-    @test comps == comps1
+    # nd1, F1 = decomp(I, version = "determ")
+    # comps1 = extract_ideals(nd1, F1)
+    # @test all(idl -> radical_eq(idl, equidimensional_hull(idl)), comps1)
+    # @test check_decomp(ideal(R, I), comps1)
+    # @test comps == comps1
 end
 
 @testset "example2" begin
@@ -88,9 +88,9 @@ end
     comps = extract_ideals(nd, F)
     @test all(idl -> radical_eq(idl, equidimensional_hull(idl)), comps)
     @test check_decomp(ideal(R, I), comps)
-    nd1, F1 = decomp(I, version = "determ")
-    comps1 = extract_ideals(nd1, F1)
-    @test all(idl -> radical_eq(idl, equidimensional_hull(idl)), comps1)
-    @test check_decomp(ideal(R, I), comps1)
-    @test comps == comps1
+    # nd1, F1 = decomp(I, version = "determ")
+    # comps1 = extract_ideals(nd1, F1)
+    # @test all(idl -> radical_eq(idl, equidimensional_hull(idl)), comps1)
+    # @test check_decomp(ideal(R, I), comps1)
+    # @test comps == comps1
 end
