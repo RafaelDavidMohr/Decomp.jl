@@ -8,6 +8,18 @@ include("oscar_util.jl")
 
 export decomp, extract_ideals, kalk_decomp
 
+function radical_contained_in(I1::POLI, I2::POLI)
+
+    R = base_ring(I1)
+    f = random_lin_comb(R, gens(I2))
+    tes = msolve_saturate_elim(I1, f)
+    Base.iszero(normal_form(R(1), tes))
+end
+
+function radical_eq(I1::POLI, I2::POLI)
+    radical_contained_in(I1, I2) && radical_contained_in(I2, I1)
+end
+
 mutable struct DecompNode
     reg_seq::Vector{POL}
     ideal::POLI
@@ -148,6 +160,8 @@ function nonzero!(node::DecompNode, p::POL)
     R = base_ring(node.ideal)
     new_pols = anncashed!(node, p)
     new_idl = node.ideal + ideal(R, new_pols)
+    # @assert radical_eq(node.ideal, equidimensional_hull(node.ideal))
+    # @assert dim(node.ideal) == dim(saturation(node.ideal, ideal(R, p)))
     new_node = DecompNode(copy(node.reg_seq), new_idl, vcat(node.nonzero, [p]), copy(node.remaining),
                           node, true, Dict{POL, Vector{POL}}(), DecompNode[],
                           DecompNode[])
@@ -170,10 +184,11 @@ function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
             println("component is empty, going to next equation")
             break
         end
+        @assert isone(dim(sample_points_p_nonzero))
         P1 = POL[]
         P2 = POL[]
         curr_dim = d
-        rem = vcat(P[1:i-1], [f], node.remaining) 
+        rem = vcat(P[1:i-1]) 
         for (j, q) in enumerate(rem)
             println("treating $(j)th remaining equation")
             if R(1) in (sample_points_p_nonzero + ideal(R, q))
@@ -187,18 +202,14 @@ function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
                     println("component is empty, going to next equation")
                     break
                 end
+                @assert isone(dim(sample_points_p_nonzero))
             else
-                if j > i-1
-                    append!(P2, rem[j:end])
-                    break
-                else
-                    push!(P2, q)
-                end
+                push!(P2, q)
             end
         end
         println("setting nonzero")
         new_nodes[i] = nonzero!(zero!(node, P1, P1), p)
-        new_nodes[i].remaining = copy(P2)
+        prepend!(new_nodes[i].remaining, [P2..., f])
     end
     return new_nodes
 end
@@ -273,6 +284,7 @@ function anncashed!(node::DecompNode, f::POL; onlyneedone = false)
     sort!(res, lt = (p1, p2) -> total_degree(p1) < total_degree(p2) || total_degree(p1) == total_degree(p2) && length(monomials(p1)) < length(monomials(p2)))
     node.ann_cashe[f] = res
     return res
+    # return ann!(node.ideal, node.ideal, f)
 end
 
 # compute nontrivial zero divisors of powers of f over idl
