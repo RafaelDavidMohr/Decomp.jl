@@ -8,17 +8,6 @@ include("oscar_util.jl")
 
 export decomp, extract_ideals, kalk_decomp
 
-function radical_contained_in(I1::POLI, I2::POLI)
-
-    R = base_ring(I1)
-    f = random_lin_comb(R, gens(I2))
-    tes = msolve_saturate_elim(I1, f)
-    Base.iszero(normal_form(R(1), tes))
-end
-
-function radical_eq(I1::POLI, I2::POLI)
-    radical_contained_in(I1, I2) && radical_contained_in(I2, I1)
-end
 
 mutable struct DecompNode
     reg_seq::Vector{POL}
@@ -113,6 +102,7 @@ function decomp(sys::Vector{POL};
 
     all_processed = all(nd -> isempty(nd.remaining), Leaves(initial_node))
     while !all_processed 
+        all_processed = all(nd -> isempty(nd.remaining), Leaves(initial_node))
         for node in Leaves(initial_node)
             isempty(node.remaining) && continue
             if sat_ring(1) in node.ideal
@@ -120,8 +110,6 @@ function decomp(sys::Vector{POL};
                 continue
             end
             inter!(node, version = version)
-            all_processed = all(nd -> isempty(nd.remaining),
-                                Leaves(initial_node))
             break
         end
     end
