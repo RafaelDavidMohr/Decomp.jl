@@ -21,6 +21,8 @@ mutable struct DecompNode
     zero_children::Vector{DecompNode}
 end
 
+dimension(node::DecompNode) = ngens(base_ring(node.ideal)) - 1 - length(node.reg_seq)
+
 function Base.show(io::IO, node::DecompNode)
     R = base_ring(node.ideal)
     if R(1) in node.ideal
@@ -50,8 +52,15 @@ function inter!(node::DecompNode;
 
     f = popfirst!(node.remaining)
     println("intersecting with $f over component with $(length(node.nonzero)) nz conditions")
-    G = anncashed!(node, f, onlyneedone = true)
 
+    # here check regularity with hyperplane cuts
+    sp_and_f = sample_points(node.ideal, node.nonzero, dimension(node)) + ideal(base_ring(node.ideal), f)
+    f4(sp_and_f, complete_reduction = true)
+    if one(base_ring(node.ideal)) in sp_and_f
+        println("is regular (hyperplane check)")
+        return [zero!(node, [f], [f])]
+    end
+    G = anncashed!(node, f, onlyneedone = true)
     if isempty(G)
         # f regular
         println("is regular")
@@ -105,7 +114,8 @@ function decomp(sys::Vector{POL};
         all_processed = all(nd -> isempty(nd.remaining), Leaves(initial_node))
         for node in Leaves(initial_node)
             isempty(node.remaining) && continue
-            if sat_ring(1) in node.ideal
+            sp = sample_points(node.ideal, node.nonzero, dimension(node))
+            if sat_ring(1) in sp
                 empty!(node.remaining)
                 continue
             end
@@ -148,8 +158,6 @@ function nonzero!(node::DecompNode, p::POL)
     R = base_ring(node.ideal)
     new_pols = anncashed!(node, p)
     new_idl = node.ideal + ideal(R, new_pols)
-    # @assert radical_eq(node.ideal, equidimensional_hull(node.ideal))
-    # @assert dim(node.ideal) == dim(saturation(node.ideal, ideal(R, p)))
     new_node = DecompNode(copy(node.reg_seq), new_idl, vcat(node.nonzero, [p]), copy(node.remaining),
                           node, true, Dict{POL, Vector{POL}}(), DecompNode[],
                           DecompNode[])
@@ -162,7 +170,7 @@ function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
     isempty(P) && return DecompNode[]
     new_nodes = [node for p in P]
     R = base_ring(node.ideal)
-    d = dim(node.ideal) - 1
+    d = dimension(node)
     println("presplitting")
     for (i, p) in enumerate(P)
         println("nonzero condition: $(p)")
@@ -172,7 +180,6 @@ function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
             println("component is empty, going to next equation")
             break
         end
-        @assert isone(dim(sample_points_p_nonzero))
         P1 = POL[]
         P2 = POL[]
         curr_dim = d
@@ -190,7 +197,6 @@ function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
                     println("component is empty, going to next equation")
                     break
                 end
-                @assert isone(dim(sample_points_p_nonzero))
             else
                 push!(P2, q)
             end
@@ -343,7 +349,7 @@ function Base.show(io::IO, comp::KalkComp)
     if R(1) in comp.ideal
         print(io, "empty component")
     else
-        print(io, """codim $(ngens(base_ring(comp.ideal)) - 1 - dim(comp.ideal)),
+        print(io, """codim $(ngens(base_ring(comp.ideal)) - 1 - dimension(comp.ideal)),
                      eqns $(comp.eqns),
                      nonzero $([P.p for P in comp.nz_cond])""")
     end
@@ -399,7 +405,7 @@ function kalk_decomp(sys::Vector{POL})
     for comp in done
         gb = f4(comp.ideal, complete_reduction = true)
         println("number of terms in gb: $(sum([length(monomials(p)) for p in gb]))")
-        println("codimension: $(ngens(R) - dim(comp.ideal))")
+        println("codimension: $(ngens(R) - dimension(comp.ideal))")
     end
         
     return done
