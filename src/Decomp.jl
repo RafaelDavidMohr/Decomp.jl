@@ -55,8 +55,8 @@ function inter!(node::DecompNode;
 
     # here check regularity with hyperplane cuts
     sp_and_f = sample_points(node.ideal, node.nonzero, dimension(node)) + ideal(base_ring(node.ideal), f)
-    f4(sp_and_f, complete_reduction = true)
-    if one(base_ring(node.ideal)) in sp_and_f
+    gb = f4(sp_and_f, complete_reduction = true)
+    if one(base_ring(node.ideal)) in gens(gb)
         println("is regular (hyperplane check)")
         return [zero!(node, [f], [f])]
     end
@@ -114,11 +114,12 @@ function decomp(sys::Vector{POL};
         all_processed = all(nd -> isempty(nd.remaining), Leaves(initial_node))
         for node in Leaves(initial_node)
             isempty(node.remaining) && continue
-            sp = sample_points(node.ideal, node.nonzero, dimension(node))
-            if sat_ring(1) in sp
-                empty!(node.remaining)
-                continue
-            end
+            # sp = sample_points(node.ideal, node.nonzero, dimension(node))
+            # gb = f4(sp, complete_reduction = true)
+            # if sat_ring(1) in gens(gb) 
+            #     empty!(node.remaining)
+            #     continue
+            # end
             inter!(node, version = version)
             break
         end
