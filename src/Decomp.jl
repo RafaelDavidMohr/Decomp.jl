@@ -6,7 +6,7 @@ using Reexport
 
 include("oscar_util.jl")
 
-export decomp, extract_ideals, kalk_decomp
+export decomp, extract_ideals, print_info
 
 mutable struct DecompNode
     seq::Vector{POL}
@@ -555,12 +555,12 @@ function extract_ideals(node::DecompNode, hom)
 end
 
 function print_info(node::DecompNode)
-    for nd in Leaves(nd)
+    for nd in Leaves(node)
         R = ring(nd)
         R(1) in nd.witness_set && continue
         A, _ = quo(R, ideal(R, vcat(node.witness_set, [gens(R)[1]])))
         vd = vdim(A)
-        println("component of dimension $(dimension(nd.witness_set)), degree $(vd)")
+        println("component of dimension $(dimension(nd)), degree $(vd)")
     end
 end
 
