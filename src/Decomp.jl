@@ -17,6 +17,7 @@ mutable struct DecompNode
     witness_set::Vector{POL}
 
     remaining::Vector{POL}
+    hyperplanes::Vector{POL}
 
     # tree data structure related for caching
     parent::Union{Nothing, DecompNode}
@@ -70,7 +71,7 @@ function inter!(node::DecompNode;
                 version = "probabilistic")
 
     f = popfirst!(node.remaining)
-    println("intersecting with $f over component with $(length(node.nonzero)) nz conditions")
+    println("intersecting with equation of degree $(total_degree(f)) over component with $(length(node.nonzero)) nz conditions")
 
     # here check regularity with hyperplane cuts
     if version == "probabilistic"
@@ -99,7 +100,7 @@ function inter!(node::DecompNode;
         for g in G
             H = anncashed!(node, g)
             iszero(total_degree(first(H))) && continue
-            println("splitting along $(g)")
+            println("splitting along equation of degree $(total_degree(g))")
             reduce_generators_size!(node.gb, H)
 
             println("$(length(H)) zero divisors")
@@ -130,9 +131,13 @@ function decomp(sys::Vector{POL};
     F_inv = hom(sat_ring, R, [zero(R), gens(R)...])
     
     first_eqns = [F(first(sys))]
+    hyperplanes = [random_lin_comb(sat_ring, [gens(sat_ring)[2:end]..., sat_ring(1)]) for _ in 1:ngens(R)]
+    initial_witness = version == "probabilistic" ? compute_witness_set(first_eqns, POL[], ngens(R) - 1, hyperplanes) : first_eqns
     initial_node = DecompNode(first_eqns, Vector{POL}[],
                               POL[], first_eqns, true,
-                              compute_witness_set(first_eqns, POL[], ngens(R) - 1), (F).(sys[2:end]),
+                              initial_witness,
+                              (F).(sys[2:end]),
+                              hyperplanes,
                               nothing,
                               Dict{POL, Vector{POL}}(),
                               DecompNode[])
@@ -164,18 +169,21 @@ end
 
 function zero!(node::DecompNode, 
                append_to_sat::Vector{POL},
-               append_to_req_seq::Vector{POL})
+               append_to_req_seq::Vector{POL};
+               version = "probabilistic")
 
     R = ring(node)
     idl_gens = vcat(equations(node), append_to_req_seq, append_to_sat)
     new_dim = dimension(node) - length(append_to_req_seq)
+    new_witness = version == "probabilistic" ? compute_witness_set(idl_gens, node.nonzero, new_dim, node.hyperplanes) : node.witness_set
     new_node = DecompNode(vcat(node.seq, append_to_req_seq),
                           vcat(node.added_by_sat, [append_to_sat]),
                           copy(node.nonzero),
                           node.gb,
                           false,
-                          compute_witness_set(idl_gens, node.nonzero, new_dim),
+                          new_witness,
                           copy(node.remaining),
+                          node.hyperplanes,
                           node,
                           Dict{POL, Vector{POL}}(),
                           DecompNode[])
@@ -194,11 +202,11 @@ function nonzero!(node::DecompNode, p::POL; version = "probabilistic")
         new_gb = vcat(node.gb, new_pols)
     end
     node_id_gens = vcat(node.gb, node.seq, node.added_by_sat...)
+    new_witness = version == "probabilistic" ? compute_witness_set(node_id_gens, vcat(node.nonzero, [p]), dimension(node), node.hyperplanes) : node.witness_set
     new_node = DecompNode(copy(node.seq), copy(node.added_by_sat),
                           vcat(node.nonzero, [p]), new_gb, gb_known,
-                          compute_witness_set(node_id_gens,
-                                              vcat(node.nonzero, [p]), dimension(node)),
-                          copy(node.remaining), node, Dict{POL, Vector{POL}}(),
+                          new_witness,
+                          copy(node.remaining), node.hyperplanes, node, Dict{POL, Vector{POL}}(),
                           DecompNode[])
     push!(node.children, new_node)
     return new_node
@@ -212,7 +220,6 @@ function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
     d = dimension(node)
     println("presplitting")
     for (i, p) in enumerate(P)
-        println("nonzero condition: $(p)")
         println("computing sample points for $(i)th p")
         witness_set_p_nz = node.witness_set
         if R(1) in witness_set_p_nz
@@ -231,7 +238,8 @@ function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
                 curr_dim -= 1
                 witness_set_p_nz = compute_witness_set(vcat(equations(node), P1),
                                                        vcat(node.nonzero, [p]),
-                                                       curr_dim)
+                                                       curr_dim,
+                                                       node.hyperplanes)
                 if R(1) in witness_set_p_nz
                     println("component is empty, going to next equation")
                     break
@@ -251,10 +259,9 @@ function nonzero_presplit_deterministic!(node::DecompNode, P::Vector{POL}, f::PO
 
     isempty(P) && return DecompNode[]
     new_nodes = [begin
-                     println("setting $(p) nonzero")
-                     # TODO: need a deterministic nonzero version
+                     println("setting $(i)th p nonzero")
                      nonzero!(node, p, version = "deter")
-                 end for p in P]
+                 end for (i, p) in enumerate(P)]
     println("presplitting")
     for (i, p) in enumerate(P)
         println("presplitting along $(i)th p")
@@ -275,10 +282,11 @@ function nonzero_presplit_deterministic!(node::DecompNode, P::Vector{POL}, f::PO
     return new_nodes
 end
 
-function compute_witness_set(id_gens::Vector{POL}, nonzero::Vector{POL}, d::Int)
+function compute_witness_set(id_gens::Vector{POL}, nonzero::Vector{POL}, d::Int,
+                             hyperplanes::Vector{POL})
     R = parent(first(id_gens))
     # do not incorporate the eliminating variable
-    result = vcat(id_gens, [random_lin_comb(R, [gens(R)[2:end]..., R(1)]) for _ in 1:d])
+    result = vcat(id_gens, hyperplanes[1:d])
     for h in nonzero
         result = msolve_saturate(result, h)
     end
@@ -555,13 +563,38 @@ function extract_ideals(node::DecompNode, hom)
 end
 
 function print_info(node::DecompNode)
-    for nd in Leaves(node)
-        R = ring(nd)
-        R(1) in nd.witness_set && continue
-        A, _ = quo(R, ideal(R, vcat(node.witness_set, [gens(R)[1]])))
+    println("extracting degree/dimension info, this may take a while...")
+    Rr = ring(node)
+    comps = filter(nd -> !(Rr(1) in nd.witness_set), collect(Leaves(node)))
+    println("$(length(collect(Leaves(node))) - length(comps)) empty components")
+    number_emb_comps = 0
+    dim_degree = Dict{Int, Int}([(i, 0) for i in 0:(ngens(Rr) - 1)])
+    sort!(comps, by = nd -> dimension(nd), rev = true)
+    for (i, nd) in enumerate(comps)
+        ws_gens = copy(nd.witness_set)
+        for lower_dim in comps[1:i-1]
+            compute_gb!(lower_dim)
+            if dimension(lower_dim) > dimension(nd) 
+                p = random_lin_comb(Rr, lower_dim.gb)
+                ws_gens = msolve_saturate(ws_gens, p)
+            end
+        end
+        push!(ws_gens, first(gens(Rr)))
+        J = radical(ideal(Rr, ws_gens))
+        A, _ = quo(Rr, J)
         vd = vdim(A)
-        println("component of dimension $(dimension(nd)), degree $(vd)")
+        if vd > 0
+            println("component of dimension $(dimension(nd)), degree $(vd)")
+            dim_degree[dimension(nd)] += 1
+        else
+            number_emb_comps += 1
+        end
     end
+    println("---")
+    for (k, v) in pairs(dim_degree)
+        v > 0 && println("dimension $k, degree $v")
+    end
+    println("$(number_emb_comps) embedded components")
 end
 
 end
