@@ -340,7 +340,7 @@ function msolve_saturate(idl_gens::Vector{POL}, f::POL)
     R = parent(first(idl_gens))
     vars = gens(R)
     J = ideal(R, [idl_gens..., vars[1]*f - 1])
-    gb = f4(J, eliminate = 1, complete_reduction = true)
+    gb = f4(J, eliminate = 1, complete_reduction = true, la_option = 42)
     return gens(gb)
 end
 
