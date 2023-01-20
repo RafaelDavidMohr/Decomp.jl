@@ -110,7 +110,7 @@ end
 
 function find_previous_zds!(node::DecompNode, f::POL)
     if haskey(node.zd_cache, f) 
-        return delete_and_return!(node.zd_cache[f])
+        return delete_and_return!(node.zd_cache, f)
     elseif isnothing(AbstractTrees.parent(node))
         return POL[]
     else
