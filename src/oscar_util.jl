@@ -2,6 +2,14 @@ const POL = gfp_mpoly
 const POLR = GFPMPolyRing
 const POLI = MPolyIdeal{POL}
 
+function msolve_saturate(idl_gens::Vector{POL}, f::POL)
+    R = parent(first(idl_gens))
+    vars = gens(R)
+    J = ideal(R, [idl_gens..., vars[1]*f - 1])
+    gb = f4(J, eliminate = 1, complete_reduction = true, la_option = 42)
+    return gens(gb)
+end
+
 function msolve_saturate_elim(I::POLI, f::POL;
                               infolevel = 0)
 
@@ -14,6 +22,15 @@ function msolve_saturate_elim(I::POLI, f::POL;
     return ideal(R, [elim_hom(p) for p in gb])
 end
 
+function msolve_colon(idl_gens::Vector{POL}, f::POL)
+    R = parent(first(idl_gens))
+    vars = gens(R)
+    J = ideal(R, [[vars[1]*p for p in idl_gens]..., (vars[1]-1)*f])
+    gb = f4(J, eliminate = 1, complete_reduction = true, la_option = 42)
+    return filter(p -> !iszero(p), [divides(p, f)[2] for p in gens(gb)])
+end
+
+
 function msolve_colon_elim(I::POLI, f::POL;
                            infolevel = 0)
 
@@ -24,6 +41,17 @@ function msolve_colon_elim(I::POLI, f::POL;
     J = ideal(S, push!([vars[1]*F(p) for p in gens(I)], (vars[1]-1)*F(f)))
     gb = f4(J, eliminate = 1, info_level = infolevel, complete_reduction = true)
     return ideal(R, [divides(elim_hom(p), f)[2] for p in gb])
+end
+
+function compute_witness_set(id_gens::Vector{POL}, nonzero::Vector{POL}, d::Int,
+                             hyperplanes::Vector{POL})
+    R = parent(first(id_gens))
+    # do not incorporate the eliminating variable
+    result = vcat(id_gens, hyperplanes[1:d])
+    for h in nonzero
+        result = msolve_saturate(result, h)
+    end
+    return result
 end
 
 function random_lin_comb(R, P, upper_bound)

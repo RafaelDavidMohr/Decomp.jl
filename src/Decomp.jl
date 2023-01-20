@@ -8,6 +8,13 @@ include("oscar_util.jl")
 
 export decomp, extract_ideals, print_info
 
+# helpers
+function delete_and_return!(d::Dict{K, V}, k::K) where {K, V}
+    v = d[k]
+    delete!(d, k)
+    return v
+end
+
 mutable struct DecompNode
     seq::Vector{POL}
     added_by_sat::Vector{Vector{POL}}
@@ -21,32 +28,8 @@ mutable struct DecompNode
 
     # tree data structure related for caching
     parent::Union{Nothing, DecompNode}
-    ann_cashe::Dict{POL, Vector{POL}}
+    zd_cache::Dict{POL, Vector{POL}}
     children::Vector{DecompNode}
-end
-
-ring(node::DecompNode) = parent(first(node.seq))
-dimension(node::DecompNode) = ngens(ring(node)) - length(node.seq) - 1
-equations(node::DecompNode) = vcat(node.seq, node.added_by_sat..., node.gb)
-
-function compute_gb!(node::DecompNode)
-
-    if !node.gb_known
-        R = ring(node)
-        res = equations(node)
-        for h in node.nonzero
-            res = msolve_saturate(res, h) 
-        end
-        node.gb_known = true
-        node.gb = gens(f4(ideal(ring(node), res), complete_reduction = true))
-    end
-    return node.gb
-end
-
-function reduce(f::Union{POL, Vector{POL}}, node::DecompNode)
-
-    gb = compute_gb!(node)
-    return Oscar.reduce(f, gb)
 end
 
 function Base.show(io::IO, node::DecompNode)
@@ -55,6 +38,7 @@ function Base.show(io::IO, node::DecompNode)
                  nonzero lms: $([leading_monomial(h) for h in node.nonzero])""")
 end
 
+# tree stuff
 AbstractTrees.childtype(::DecompNode) = DecompNode
 
 function AbstractTrees.children(node::DecompNode)
@@ -67,6 +51,201 @@ AbstractTrees.parent(node::DecompNode) = node.parent
 AbstractTrees.NodeType(::Type{DecompNode}) = HasNodeType()
 AbstractTrees.nodetype(::Type{DecompNode}) = DecompNode
 
+ring(node::DecompNode) = parent(first(node.seq))
+dimension(node::DecompNode) = ngens(ring(node)) - length(node.seq) - 1
+equations(node::DecompNode) = vcat(node.seq, node.added_by_sat..., node.gb)
+
+# compute info about node
+function compute_gb!(node::DecompNode)
+
+    if !node.gb_known
+        sort!(node.nonzero, by = p -> total_degree(p))
+        R = ring(node)
+        res = equations(node)
+        for h in node.nonzero
+            res = msolve_saturate(res, h) 
+        end
+        node.gb_known = true
+        node.gb = gens(f4(ideal(ring(node), res), complete_reduction = true))
+    end
+    return node.gb
+end
+
+function is_empty_set!(node::DecompNode; version = "probabilistic")
+    if version == "probabilistic"
+        return one(ring(node)) in node.witness_set
+    else
+        compute_gb!(node)
+        return one(ring(node)) in node.gb
+    end
+end
+
+# operations
+
+function reduce(f::Union{POL, Vector{POL}}, node::DecompNode)
+
+    gb = compute_gb!(node)
+    return Oscar.reduce(f, gb)
+end
+
+function does_vanish(node::DecompNode, f::POL;
+                     version = "probabilistic")
+
+    if version == "probabilistic"
+        return iszero(reduce(f, node.witness_set))
+    else
+        return iszero(reduce(f, node))
+    end
+end
+
+function is_regular_int(node::DecompNode, f::POL)
+
+    does_vanish(node, f) && return "vanishes"
+    R = ring(node)
+    gb = f4(ideal(R, node.witness_set) + ideal(R, f),
+            complete_reduction = true)
+    R(1) in gb && return "regular"
+    return "undecided"
+end
+
+function find_previous_zds!(node::DecompNode, f::POL)
+    if haskey(node.zd_cache, f) 
+        return delete_and_return!(node.zd_cache[f])
+    elseif isnothing(AbstractTrees.parent(node))
+        return POL[]
+    else
+        return find_previous_zds!(parent(node), f)
+    end
+end
+
+function find_nontrivial_zero_divisor!(node::DecompNode, f::POL)
+    G = find_previous_zds!(node, f)
+    if isempty(G)
+        compute_gb!(node)
+        G = msolve_colon(node.gb, f)
+    end
+    node.zd_cache[f] = G
+    while !isempty(node.zd_cache[f])
+        g = popfirst!(node.zd_cache[f])
+        does_vanish(node, g) && continue
+        return g    
+    end
+    return zero(f)
+end
+        
+function zero!(node::DecompNode, 
+               append_to_sat::Vector{POL},
+               append_to_req_seq::Vector{POL};
+               version = "probabilistic")
+
+    R = ring(node)
+    idl_gens = vcat(equations(node), append_to_req_seq, append_to_sat)
+    new_dim = dimension(node) - length(append_to_req_seq)
+    new_witness = version == "probabilistic" ? compute_witness_set(idl_gens, node.nonzero, new_dim, node.hyperplanes) : node.witness_set
+    new_node = DecompNode(vcat(node.seq, append_to_req_seq),
+                          vcat(node.added_by_sat, [append_to_sat]),
+                          copy(node.nonzero),
+                          node.gb,
+                          false,
+                          new_witness,
+                          copy(node.remaining),
+                          node.hyperplanes,
+                          node,
+                          Dict{POL, Vector{POL}}(),
+                          DecompNode[])
+    push!(node.children, new_node)
+    return new_node
+end
+
+function nonzero!(node::DecompNode, p::POL; version = "probabilistic")
+    R = ring(node)
+    new_pols = POL[]
+    gb_known = false
+    new_gb = copy(node.gb)
+    if version != "probabilistic"
+        new_pols = ann(node, p)
+        gb_known = true
+        new_gb = vcat(node.gb, new_pols)
+    end
+    new_witness = version == "probabilistic" ? compute_witness_set(equations(node), vcat(node.nonzero, [p]), dimension(node), node.hyperplanes) : node.witness_set
+    new_node = DecompNode(copy(node.seq), copy(node.added_by_sat),
+                          vcat(node.nonzero, [p]), new_gb, gb_known,
+                          new_witness,
+                          copy(node.remaining), node.hyperplanes, node, Dict{POL, Vector{POL}}(),
+                          DecompNode[])
+    push!(node.children, new_node)
+    return new_node
+end
+
+function remove!(node::DecompNode, P::Vector{POL}, f::POL, zd::POL)
+
+    isempty(P) && return DecompNode[]
+    new_nodes = DecompNode[]
+    R = ring(node)
+    println("presplitting")
+    for (i, p) in enumerate(P)
+        println("computing sample points for $(i)th p")
+        new_node = nonzero!(node, p)
+        push!(new_node.gb, zd)
+        new_node.witness_set = compute_witness_set(new_node.equations,
+                                                   new_node.nonzero,
+                                                   dimension(new_node),
+                                                   new_node.hyperplanes)
+        if is_empty_set!(new_node)
+            println("component is empty, going to next equation")
+            pop!(node.children)
+            continue
+        end
+        P2 = POL[]
+        for (j, q) in enumerate(P[1:i-1])
+            println("treating $(j)th remaining equation")
+            int_type = is_regular_int(new_node, q)
+            if int_type == "regular"
+                println("regular intersection detected, recomputing sample points...")
+                new_node = zero!(new_node, POL[], [q])
+                if is_empty_set!(new_node)
+                    println("component is empty, going to next equation")
+                    break
+                end
+            elseif int_type == "vanishes"
+                continue
+            else
+                push!(P2, q)
+            end
+        end
+        prepend!(new_node.remaining, [P2..., f])
+        push!(new_nodes, new_node)
+    end
+    return new_nodes
+end
+
+function remove_deterministic!(node::DecompNode, P::Vector{POL}, f::POL)
+
+    isempty(P) && return DecompNode[]
+    new_nodes = [begin
+                     println("setting $(i)th p nonzero")
+                     nonzero!(node, p, version = "deter")
+                 end for (i, p) in enumerate(P)]
+    println("presplitting")
+    for (i, p) in enumerate(P)
+        println("presplitting along $(i)th p")
+        P1 = POL[]
+        P2 = POL[]
+        for (j, q) in enumerate(P[1:i-1])
+            anni = ann(new_nodes[i], q)
+            if isempty(anni)
+                println("regular intersection with $(j)th q detected")
+                new_nodes[i] = zero!(new_nodes[i], POL[], [q])
+            else
+                push!(P2, q)
+            end
+        end
+        pushfirst!(new_nodes[i].remaining, f)
+        prepend!(new_nodes[i].remaining, P2)
+    end
+    return new_nodes
+end
+
 function inter!(node::DecompNode;
                 version = "probabilistic")
 
@@ -75,48 +254,34 @@ function inter!(node::DecompNode;
 
     # here check regularity with hyperplane cuts
     if version == "probabilistic"
-        R = ring(node)
-        gb = f4(ideal(R, node.witness_set) + ideal(R, f), complete_reduction = true)
-        if one(R) in gens(gb)
-            println("is regular (hyperplane check)")
-            return [zero!(node, POL[], [f])]
+        int_test = is_regular_int(node, f)
+        if int_test == "regular"
+            println("is regular (witness set)")
+            return zero!(node, POL[], [f])
+        elseif int_test == "vanishes"
+            println("vanishes (witness set)")
+            return node
         end
-        gb = f4(ideal(R, node.witness_set) + ideal(R, gens(R)[1] * f - 1), complete_reduction = true)
-        if one(R) in gens(gb)
-            println("vanishes (hyperplane check)")
-            return [node]
-        end 
     end
-    G = anncashed!(node, f, onlyneedone = true)
-    if isempty(G)
+    g = find_nontrivial_zero_divisor!(node, f)
+    if iszero(g)
         # f regular
         println("is regular")
         return [zero!(node, POL[], [f])]
-    elseif iszero(total_degree(first(G)))
-        # f vanishes
-        println("vanishes")
-        return [node]
     else # we split
-        for g in G
-            H = anncashed!(node, g)
-            iszero(total_degree(first(H))) && continue
-            println("splitting along equation of degree $(total_degree(g))")
-            reduce_generators_size!(node.gb, H)
-
-            println("$(length(H)) zero divisors")
-            if version == "probabilistic"
-                new_nodes = nonzero_presplit!(node, H, f)
-            else
-                new_nodes = nonzero_presplit_deterministic!(node, H, f)
-            end
-            high_dim = zero!(node, H, POL[])
-            res = vcat([high_dim], new_nodes)
-            println("$(length(res)) new components")
-            return res
+        println("splitting along equation of degree $(total_degree(g))")
+        H = ann(node, g)
+        println("$(length(H)) zero divisors")
+        if version == "probabilistic"
+            new_nodes = remove!(node, H, f, g)
+        else
+            new_nodes = remove_deterministic!(node, H, f)
         end
+        high_dim = zero!(node, H, POL[])
+        res = vcat([high_dim], new_nodes)
+        println("$(length(res)) new components")
+        return res
     end
-    error("we have run into a case that I am currently unsure how to handle.")
-    return DecompNode[]
 end
 
 function decomp(sys::Vector{POL};
@@ -167,197 +332,12 @@ function decomp(sys::Vector{POL};
     return initial_node, F_inv
 end
 
-function zero!(node::DecompNode, 
-               append_to_sat::Vector{POL},
-               append_to_req_seq::Vector{POL};
-               version = "probabilistic")
-
-    R = ring(node)
-    idl_gens = vcat(equations(node), append_to_req_seq, append_to_sat)
-    new_dim = dimension(node) - length(append_to_req_seq)
-    new_witness = version == "probabilistic" ? compute_witness_set(idl_gens, node.nonzero, new_dim, node.hyperplanes) : node.witness_set
-    new_node = DecompNode(vcat(node.seq, append_to_req_seq),
-                          vcat(node.added_by_sat, [append_to_sat]),
-                          copy(node.nonzero),
-                          node.gb,
-                          false,
-                          new_witness,
-                          copy(node.remaining),
-                          node.hyperplanes,
-                          node,
-                          Dict{POL, Vector{POL}}(),
-                          DecompNode[])
-    push!(node.children, new_node)
-    return new_node
-end
-
-function nonzero!(node::DecompNode, p::POL; version = "probabilistic")
-    R = ring(node)
-    new_pols = POL[]
-    gb_known = false
-    new_gb = copy(node.gb)
-    if version != "probabilistic"
-        new_pols = anncashed!(node, p)
-        gb_known = true
-        new_gb = vcat(node.gb, new_pols)
-    end
-    node_id_gens = vcat(node.gb, node.seq, node.added_by_sat...)
-    new_witness = version == "probabilistic" ? compute_witness_set(node_id_gens, vcat(node.nonzero, [p]), dimension(node), node.hyperplanes) : node.witness_set
-    new_node = DecompNode(copy(node.seq), copy(node.added_by_sat),
-                          vcat(node.nonzero, [p]), new_gb, gb_known,
-                          new_witness,
-                          copy(node.remaining), node.hyperplanes, node, Dict{POL, Vector{POL}}(),
-                          DecompNode[])
-    push!(node.children, new_node)
-    return new_node
-end
-
-function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
-
-    isempty(P) && return DecompNode[]
-    new_nodes = DecompNode[]
-    R = ring(node)
-    d = dimension(node)
-    println("presplitting")
-    for (i, p) in enumerate(P)
-        println("computing sample points for $(i)th p")
-        new_node = nonzero!(node, p)
-        if R(1) in new_node.witness_set
-            println("component is empty, going to next equation")
-            pop!(node.children)
-            continue
-        end
-        P1 = POL[]
-        P2 = POL[]
-        curr_dim = d
-        rem = vcat(P[1:i-1]) 
-        for (j, q) in enumerate(rem)
-            println("treating $(j)th remaining equation")
-            if R(1) in f4(ideal(ring(node), vcat(new_node.witness_set, [q])), complete_reduction = true)
-                println("regular intersection detected, recomputing sample points...")
-                new_node = zero!(new_node, POL[], [q])
-                if R(1) in new_node.witness_set
-                    println("component is empty, going to next equation")
-                    break
-                end
-            else
-                push!(P2, q)
-            end
-        end
-        prepend!(new_node.remaining, [P2..., f])
-        push!(new_nodes, new_node)
-    end
-    return new_nodes
-end
-
-function nonzero_presplit_deterministic!(node::DecompNode, P::Vector{POL}, f::POL)
-
-    isempty(P) && return DecompNode[]
-    new_nodes = [begin
-                     println("setting $(i)th p nonzero")
-                     nonzero!(node, p, version = "deter")
-                 end for (i, p) in enumerate(P)]
-    println("presplitting")
-    for (i, p) in enumerate(P)
-        println("presplitting along $(i)th p")
-        P1 = POL[]
-        P2 = POL[]
-        for (j, q) in enumerate(P[1:i-1])
-            anni = anncashed!(new_nodes[i], q)
-            if isempty(anni)
-                println("regular intersection with $(j)th q detected")
-                new_nodes[i] = zero!(new_nodes[i], POL[], [q])
-            else
-                push!(P2, q)
-            end
-        end
-        pushfirst!(new_nodes[i].remaining, f)
-        prepend!(new_nodes[i].remaining, P2)
-    end
-    return new_nodes
-end
-
-function compute_witness_set(id_gens::Vector{POL}, nonzero::Vector{POL}, d::Int,
-                             hyperplanes::Vector{POL})
-    R = parent(first(id_gens))
-    # do not incorporate the eliminating variable
-    result = vcat(id_gens, hyperplanes[1:d])
-    for h in nonzero
-        result = msolve_saturate(result, h)
-    end
-    return result
-end
-
-function findpreviousann(node::DecompNode, f::POL)
-    if haskey(node.ann_cashe, f)
-        return node.ann_cashe[f], node
-    elseif isnothing(AbstractTrees.parent(node))
-        return nothing, nothing
-    elseif haskey(AbstractTrees.parent(node).ann_cashe, f)
-        return AbstractTrees.parent(node).ann_cashe[f], node.parent
-    else
-        res, nd = findpreviousann(AbstractTrees.parent(node), f)
-        return res, nd
-    end
-end
-
-function anncashed!(node::DecompNode, f::POL; onlyneedone = false)
-    prev, nd = findpreviousann(node, f)
-    # res = POL[]
-    # if isnothing(prev)
-    #     # compute ann and cache the result
-    #     res = ann(node, POL[], f)
-    # elseif nd == node
-    #     return prev
-    # elseif onlyneedone
-    #     # only normal form if we just need any zero divisor
-    #     compute_gb!(node)
-    #     res = reduce(prev, node)
-    #     filter!(p -> !iszero(p), res)
-    # else
-    #     res = ann(node, prev, f)
-    # end
-    res = ann(node, POL[], f)
-    sort!(res, lt = (p1, p2) -> total_degree(p1) < total_degree(p2) || total_degree(p1) == total_degree(p2) && length(monomials(p1)) < length(monomials(p2)))
-    node.ann_cashe[f] = res
-    return res
-end
-
-function ann(node::DecompNode, base::Vector{POL}, f::POL)
+function ann(node::DecompNode, f::POL)
 
     compute_gb!(node)
     gb = msolve_saturate(vcat(node.gb, base), f)
     res = reduce(gb, node)
     return filter!(p -> !iszero(p), res)
-end
-
-function msolve_saturate(idl_gens::Vector{POL}, f::POL)
-    R = parent(first(idl_gens))
-    vars = gens(R)
-    J = ideal(R, [idl_gens..., vars[1]*f - 1])
-    gb = f4(J, eliminate = 1, complete_reduction = true, la_option = 42)
-    return gens(gb)
-end
-
-function reduce_generators_size!(gb::Vector{POL},
-                                 gens_over_I::Vector{POL})
-
-    R = parent(first(gb))
-    println("reducing size of generating set...")
-    sort!(gens_over_I, by = p -> total_degree(p))
-    indices_redundant_elements = Int[]
-    J = ideal(R, gb)
-    for (i, p) in enumerate(gens_over_I)
-        i in indices_redundant_elements && continue
-        J = J + ideal(R, [p])
-        gb = f4(J)
-        for (j, q) in enumerate(gens_over_I[i+1:end])
-            j in indices_redundant_elements && continue
-            iszero(Oscar.reduce(q, gens(gb))) && push!(indices_redundant_elements, j + i)
-        end
-    end
-    deleteat!(gens_over_I, sort(unique(indices_redundant_elements)))
-    return
 end
 
 #--- Kalkbrener Decomposition ---#
