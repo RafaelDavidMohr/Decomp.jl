@@ -92,7 +92,7 @@ function does_vanish(node::DecompNode, f::POL;
                      version = "probabilistic")
 
     if version == "probabilistic"
-        return iszero(reduce(f, node.witness_set))
+        return iszero(Oscar.reduce(f, node.witness_set))
     else
         return iszero(reduce(f, node))
     end
@@ -114,16 +114,20 @@ function find_previous_zds!(node::DecompNode, f::POL)
     elseif isnothing(AbstractTrees.parent(node))
         return POL[]
     else
-        return find_previous_zds!(parent(node), f)
+        return find_previous_zds!(AbstractTrees.parent(node), f)
     end
 end
 
 function find_nontrivial_zero_divisor!(node::DecompNode, f::POL)
     G = find_previous_zds!(node, f)
-    if isempty(G)
-        compute_gb!(node)
-        G = msolve_colon(node.gb, f)
+    node.zd_cache[f] = G
+    while !isempty(node.zd_cache[f])
+        g = popfirst!(node.zd_cache[f])
+        does_vanish(node, g) && continue
+        return g    
     end
+    compute_gb!(node)
+    G = msolve_colon_elim(node.gb, f)
     node.zd_cache[f] = G
     while !isempty(node.zd_cache[f])
         g = popfirst!(node.zd_cache[f])
@@ -187,7 +191,7 @@ function remove!(node::DecompNode, P::Vector{POL}, f::POL, zd::POL)
         println("computing sample points for $(i)th p")
         new_node = nonzero!(node, p)
         push!(new_node.gb, zd)
-        new_node.witness_set = compute_witness_set(new_node.equations,
+        new_node.witness_set = compute_witness_set(equations(new_node),
                                                    new_node.nonzero,
                                                    dimension(new_node),
                                                    new_node.hyperplanes)
@@ -312,6 +316,10 @@ function decomp(sys::Vector{POL};
         all_processed = all(nd -> isempty(nd.remaining), Leaves(initial_node))
         for node in Leaves(initial_node)
             isempty(node.remaining) && continue
+            if is_empty_set!(node) 
+                empty!(node.remaining)
+                continue
+            end
             inter!(node, version = version)
             break
         end
@@ -335,7 +343,7 @@ end
 function ann(node::DecompNode, f::POL)
 
     compute_gb!(node)
-    gb = msolve_saturate(vcat(node.gb, base), f)
+    gb = msolve_saturate(node.gb, f)
     res = reduce(gb, node)
     return filter!(p -> !iszero(p), res)
 end

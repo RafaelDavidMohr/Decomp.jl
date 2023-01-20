@@ -22,25 +22,27 @@ function msolve_saturate_elim(I::POLI, f::POL;
     return ideal(R, [elim_hom(p) for p in gb])
 end
 
+# for some reason this function doesn't work
 function msolve_colon(idl_gens::Vector{POL}, f::POL)
     R = parent(first(idl_gens))
     vars = gens(R)
     J = ideal(R, [[vars[1]*p for p in idl_gens]..., (vars[1]-1)*f])
     gb = f4(J, eliminate = 1, complete_reduction = true, la_option = 42)
+    @assert all(p -> divides(p, f)[1], gb)
     return filter(p -> !iszero(p), [divides(p, f)[2] for p in gens(gb)])
 end
 
-
-function msolve_colon_elim(I::POLI, f::POL;
+function msolve_colon_elim(idl_gens::Vector{POL}, f::POL;
                            infolevel = 0)
 
+    I = ideal(parent(f), idl_gens)
     R = base_ring(I)
     S, vars = PolynomialRing(base_ring(R), pushfirst!(["y$(i)" for i in 1:ngens(R)], "t"))
     F = hom(R, S, vars[2:end])
     elim_hom = hom(S, R, pushfirst!(gens(R), R(0)))
     J = ideal(S, push!([vars[1]*F(p) for p in gens(I)], (vars[1]-1)*F(f)))
     gb = f4(J, eliminate = 1, info_level = infolevel, complete_reduction = true)
-    return ideal(R, [divides(elim_hom(p), f)[2] for p in gb])
+    return [divides(elim_hom(p), f)[2] for p in gb]
 end
 
 function compute_witness_set(id_gens::Vector{POL}, nonzero::Vector{POL}, d::Int,
