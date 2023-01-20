@@ -215,16 +215,17 @@ end
 function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
 
     isempty(P) && return DecompNode[]
-    new_nodes = [node for p in P]
+    new_nodes = DecompNode[]
     R = ring(node)
     d = dimension(node)
     println("presplitting")
     for (i, p) in enumerate(P)
         println("computing sample points for $(i)th p")
-        witness_set_p_nz = node.witness_set
-        if R(1) in witness_set_p_nz
+        new_node = nonzero!(node, p)
+        if R(1) in new_node.witness_set
             println("component is empty, going to next equation")
-            break
+            pop!(node.children)
+            continue
         end
         P1 = POL[]
         P2 = POL[]
@@ -232,15 +233,10 @@ function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
         rem = vcat(P[1:i-1]) 
         for (j, q) in enumerate(rem)
             println("treating $(j)th remaining equation")
-            if R(1) in f4(ideal(ring(node), vcat(witness_set_p_nz, [q])), complete_reduction = true)
+            if R(1) in f4(ideal(ring(node), vcat(new_node.witness_set, [q])), complete_reduction = true)
                 println("regular intersection detected, recomputing sample points...")
-                push!(P1, q)
-                curr_dim -= 1
-                witness_set_p_nz = compute_witness_set(vcat(equations(node), P1),
-                                                       vcat(node.nonzero, [p]),
-                                                       curr_dim,
-                                                       node.hyperplanes)
-                if R(1) in witness_set_p_nz
+                new_node = zero!(new_node, POL[], [q])
+                if R(1) in new_node.witness_set
                     println("component is empty, going to next equation")
                     break
                 end
@@ -248,9 +244,8 @@ function nonzero_presplit!(node::DecompNode, P::Vector{POL}, f::POL)
                 push!(P2, q)
             end
         end
-        println("setting nonzero")
-        new_nodes[i] = nonzero!(zero!(node, POL[], P1), p)
-        prepend!(new_nodes[i].remaining, [P2..., f])
+        prepend!(new_node.remaining, [P2..., f])
+        push!(new_nodes, new_node)
     end
     return new_nodes
 end
