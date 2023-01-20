@@ -92,7 +92,8 @@ function does_vanish(node::DecompNode, f::POL;
                      version = "probabilistic")
 
     if version == "probabilistic"
-        return iszero(Oscar.reduce(f, node.witness_set))
+        gb = msolve_saturate(node.witness_set, f)
+        return one(ring(node)) in gb
     else
         return iszero(reduce(f, node))
     end
