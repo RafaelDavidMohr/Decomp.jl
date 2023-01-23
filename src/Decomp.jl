@@ -97,10 +97,14 @@ end
 
 # operations
 
-function reduce(f::Union{POL, Vector{POL}}, node::DecompNode)
+function reduce(f::POL, node::DecompNode)
 
     gb = compute_gb!(node)
-    return Oscar.reduce(f, gb)
+    return Oscar.normal_form(f, gb)
+end
+
+function reduce(f::Vector{POL}, node::DecompNode)
+    return [reduce(p, node) for p in f]
 end
 
 function does_vanish(node::DecompNode, f::POL;
@@ -134,12 +138,13 @@ function find_previous_zds!(node::DecompNode, f::POL)
     end
 end
 
-function find_nontrivial_zero_divisor!(node::DecompNode, f::POL)
+function find_nontrivial_zero_divisor!(node::DecompNode, f::POL;
+                                       version = "probabilistic")
     G = find_previous_zds!(node, f)
     node.zd_cache[f] = G
     while !isempty(node.zd_cache[f])
         g = popfirst!(node.zd_cache[f])
-        does_vanish(node, g) && continue
+        does_vanish(node, g, version = version) && continue
         return g    
     end
     compute_gb!(node)
@@ -147,7 +152,7 @@ function find_nontrivial_zero_divisor!(node::DecompNode, f::POL)
     node.zd_cache[f] = G
     while !isempty(node.zd_cache[f])
         g = popfirst!(node.zd_cache[f])
-        does_vanish(node, g) && continue
+        does_vanish(node, g, version = version) && continue
         return g    
     end
     return zero(f)
@@ -184,11 +189,6 @@ function nonzero!(node::DecompNode, p::POL; version = "probabilistic")
     new_pols = POL[]
     gb_known = false
     new_gb = copy(node.gb)
-    if version != "probabilistic"
-        new_pols = ann(node, p)
-        gb_known = true
-        new_gb = vcat(node.gb, new_pols)
-    end
     new_witness = version == "probabilistic" ? compute_witness_set(equations(node), vcat(node.nonzero, [p]), dimension(node), node.hyperplanes) : node.witness_set
     new_node = new_child(node)
     push!(new_node.nonzero, p)
@@ -241,12 +241,14 @@ function remove!(node::DecompNode, P::Vector{POL}, f::POL, zd::POL)
     return new_nodes
 end
 
-function remove_deterministic!(node::DecompNode, P::Vector{POL}, f::POL)
+function remove_deterministic!(node::DecompNode, P::Vector{POL}, f::POL, zd::POL)
 
     isempty(P) && return DecompNode[]
     new_nodes = [begin
                      println("setting $(i)th p nonzero")
-                     nonzero!(node, p, version = "deter")
+                     new_nd = nonzero!(node, p, version = "deter")
+                     push!(new_nd.gb, zd)
+                     new_nd
                  end for (i, p) in enumerate(P)]
     println("presplitting")
     for (i, p) in enumerate(P)
@@ -257,7 +259,8 @@ function remove_deterministic!(node::DecompNode, P::Vector{POL}, f::POL)
             anni = ann(new_nodes[i], q)
             if isempty(anni)
                 println("regular intersection with $(j)th q detected")
-                new_nodes[i] = zero!(new_nodes[i], POL[], [q])
+                new_nodes[i] = zero!(new_nodes[i], POL[], [q],
+                                     version = "determ")
             else
                 push!(P2, q)
             end
@@ -273,7 +276,6 @@ function inter!(node::DecompNode;
 
     f = popfirst!(node.remaining)
     println("intersecting with equation of degree $(total_degree(f)) over component with $(length(node.nonzero)) nz conditions")
-
     # here check regularity with hyperplane cuts
     if version == "probabilistic"
         int_test = is_regular_int(node, f)
@@ -285,11 +287,11 @@ function inter!(node::DecompNode;
             return node
         end
     end
-    g = find_nontrivial_zero_divisor!(node, f)
+    g = find_nontrivial_zero_divisor!(node, f, version = version)
     if iszero(g)
         # f regular
         println("is regular")
-        return [zero!(node, POL[], [f])]
+        return [zero!(node, POL[], [f], version = version)]
     else # we split
         println("splitting along equation of degree $(total_degree(g))")
         H = ann(node, g)
@@ -297,9 +299,9 @@ function inter!(node::DecompNode;
         if version == "probabilistic"
             new_nodes = remove!(node, H, f, g)
         else
-            new_nodes = remove_deterministic!(node, H, f)
+            new_nodes = remove_deterministic!(node, H, f, g)
         end
-        high_dim = zero!(node, H, POL[])
+        high_dim = zero!(node, H, POL[], version = version)
         res = vcat([high_dim], new_nodes)
         println("$(length(res)) new components")
         return res
@@ -329,7 +331,7 @@ function decomp(sys::Vector{POL};
         all_processed = all(nd -> isempty(nd.remaining), Leaves(initial_node))
         for node in Leaves(initial_node)
             isempty(node.remaining) && continue
-            if is_empty_set!(node) 
+            if is_empty_set!(node, version = version) 
                 empty!(node.remaining)
                 continue
             end
