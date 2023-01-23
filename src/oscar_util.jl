@@ -2,7 +2,7 @@ const POL = gfp_mpoly
 const POLR = GFPMPolyRing
 const POLI = MPolyIdeal{POL}
 
-function msolve_saturate(idl_gens::Vector{POL}, f::POL)
+function msolve_saturate_no_elim(idl_gens::Vector{POL}, f::POL)
     R = parent(first(idl_gens))
     vars = gens(R)
     J = ideal(R, [idl_gens..., vars[1]*f - 1])
@@ -10,20 +10,20 @@ function msolve_saturate(idl_gens::Vector{POL}, f::POL)
     return gens(gb)
 end
 
-function msolve_saturate_elim(I::POLI, f::POL;
-                              infolevel = 0)
+function msolve_saturate(idl_gens::Vector{POL}, f::POL;
+                         infolevel = 0)
 
-    R = base_ring(I)
+    R = parent(f)
     S, vars = PolynomialRing(base_ring(R), pushfirst!(["y$(i)" for i in 1:ngens(R)], "s"))
     F = hom(R, S, vars[2:end])
     elim_hom = hom(S, R, pushfirst!(gens(R), R(0)))
-    J = ideal(S, push!([F(p) for p in gens(I)], vars[1]*F(f) - 1))
+    J = ideal(S, push!([F(p) for p in idl_gens], vars[1]*F(f) - 1))
     gb = f4(J, eliminate = 1, info_level = infolevel, complete_reduction = true)
-    return ideal(R, [elim_hom(p) for p in gb])
+    return (elim_hom).(gens(gb))
 end
 
 # for some reason this function doesn't work
-function msolve_colon(idl_gens::Vector{POL}, f::POL)
+function msolve_colon_no_elim(idl_gens::Vector{POL}, f::POL)
     R = parent(first(idl_gens))
     vars = gens(R)
     J = ideal(R, [[vars[1]*p for p in idl_gens]..., (vars[1]-1)*f])
@@ -32,8 +32,8 @@ function msolve_colon(idl_gens::Vector{POL}, f::POL)
     return filter(p -> !iszero(p), [divides(p, f)[2] for p in gens(gb)])
 end
 
-function msolve_colon_elim(idl_gens::Vector{POL}, f::POL;
-                           infolevel = 0)
+function msolve_colon(idl_gens::Vector{POL}, f::POL;
+                      infolevel = 0)
 
     I = ideal(parent(f), idl_gens)
     R = base_ring(I)
@@ -73,30 +73,6 @@ function cyclic(vars)
     return pols
 end
 
-function test_other_split(I::POLI, H::Vector{POL})
-    R = base_ring(I)
-    res = POLI[]
-    P = POL[]
-    sizehint!(res, length(H))
-    sizehint!(res, length(H))
-    curr_ideal = I
-    for (i, h) in enumerate(H)
-        println("saturating by $(i)th h")
-        component = msolve_saturate_elim(curr_ideal, h)
-        for (j, p) in enumerate(P)
-            println("saturating by $(j)th p")
-            println(p)
-            component = msolve_saturate_elim(component, p)
-        end
-        push!(res, component)
-        curr_ideal = curr_ideal + ideal(R, h)
-        println(curr_ideal)
-        push!(P, random_lin_comb(R, gens(component)))
-        println("-------")
-    end
-    return res
-end
-
 function check_decomp(I::POLI,
                       comps::Vector{POLI})
 
@@ -107,9 +83,9 @@ function check_decomp(I::POLI,
     println(res1)
     println("checking if the intersection is contained in I:")
     sort!(comps, by = J -> dim(J), rev = true)
-    J = I
+    J = gens(I)
     for idl in comps
-        J = msolve_saturate_elim(J, q, random_lin_comb(R, gens(idl)))
+        J = msolve_saturate(J, random_lin_comb(R, gens(idl)))
     end
     res2 = R(1) in J
     println(res2)
@@ -121,7 +97,7 @@ function radical_contained_in(I1::POLI, I2::POLI)
 
     R = base_ring(I1)
     f = random_lin_comb(R, gens(I2))
-    tes = msolve_saturate_elim(I1, f)
+    tes = msolve_saturate(gens(I1), f)
     Base.iszero(normal_form(R(1), tes))
 end
 
