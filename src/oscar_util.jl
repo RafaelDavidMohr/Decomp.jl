@@ -77,6 +77,11 @@ function check_decomp(I::POLI,
                       comps::Vector{POLI})
 
     R = base_ring(I)
+    if isempty(comps)
+        res = R(1) in I
+        println("I is empty: $res")
+        return res
+    end
     println("checking result, this may take a while...")
     println("checking if I is contained in the intersection:")
     res1 = all(comp -> radical_contained_in(comp, I), comps)

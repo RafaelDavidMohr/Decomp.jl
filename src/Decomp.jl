@@ -366,13 +366,12 @@ function print_info(node::DecompNode)
                 ws_gens = msolve_saturate(ws_gens, p)
             end
         end
-        push!(ws_gens, first(gens(R)))
         J = radical(ideal(R, ws_gens))
         A, _ = quo(R, J)
         vd = vdim(A)
         if vd > 0
             println("component of dimension $(dimension(nd)), degree $(vd)")
-            dim_degree[dimension(nd)] += 1
+            dim_degree[dimension(nd)] += vd
         else
             number_emb_comps += 1
         end
