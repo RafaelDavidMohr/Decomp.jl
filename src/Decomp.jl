@@ -74,14 +74,14 @@ equations(node::DecompNode) = vcat(node.seq, node.added_by_sat..., node.gb)
 function compute_gb!(node::DecompNode)
 
     if !node.gb_known
-        sort!(node.nonzero, by = p -> total_degree(p))
+        # sort!(node.nonzero, by = p -> total_degree(p))
         R = ring(node)
         res = equations(node)
         for h in node.nonzero
             res = msolve_saturate(res, h) 
         end
         node.gb_known = true
-        node.gb = gens(f4(ideal(ring(node), res), complete_reduction = true))
+        node.gb = res
     end
     return node.gb
 end
@@ -111,10 +111,11 @@ function does_vanish(node::DecompNode, f::POL;
                      version = "probabilistic")
 
     if version == "probabilistic"
-        gb = msolve_saturate(node.witness_set, f)
-        return one(ring(node)) in gb
+        # gb = msolve_saturate(node.witness_set, f)
+        # return one(ring(node)) in gb
+        return iszero(Oscar.normal_form(f, node.witness_set))
     else
-        return iszero(reduce(f, node))
+        return iszero(reduce(f, node, version = "determ"))
     end
 end
 
@@ -142,14 +143,18 @@ function find_nontrivial_zero_divisor!(node::DecompNode, f::POL;
                                        version = "probabilistic")
     G = find_previous_zds!(node, f)
     node.zd_cache[f] = G
+    println("trying to find non-trivial zero divisor...")
     while !isempty(node.zd_cache[f])
+        println("$(length(node.zd_cache[f])) equations left...")
         g = popfirst!(node.zd_cache[f])
         does_vanish(node, g, version = version) && continue
         return g    
     end
+    println("recomputing potential zero divisors...")
     compute_gb!(node)
-    G = msolve_colon(node.gb, f)
+    G = msolve_saturate(node.gb, f)
     node.zd_cache[f] = G
+    println("trying to find non-trivial zero divisor...")
     while !isempty(node.zd_cache[f])
         g = popfirst!(node.zd_cache[f])
         does_vanish(node, g, version = version) && continue
@@ -162,8 +167,9 @@ function ann(node::DecompNode, f::POL)
 
     compute_gb!(node)
     gb = msolve_saturate(node.gb, f)
-    res = reduce(gb, node)
-    return filter!(p -> !iszero(p), res)
+    # res = reduce(gb, node)
+    # return filter!(p -> !iszero(p), res)
+    return gb
 end
         
 function zero!(node::DecompNode, 
@@ -184,17 +190,13 @@ function zero!(node::DecompNode,
     return new_node
 end
 
-function nonzero!(node::DecompNode, p::POL; version = "probabilistic")
+function nonzero!(node::DecompNode, p::POL, known_zd = POL[]; version = "probabilistic")
     R = ring(node)
-    new_pols = POL[]
-    gb_known = false
-    new_gb = copy(node.gb)
-    new_witness = version == "probabilistic" ? compute_witness_set(equations(node), vcat(node.nonzero, [p]), dimension(node), node.hyperplanes) : node.witness_set
     new_node = new_child(node)
     push!(new_node.nonzero, p)
-    new_node.gb = new_gb
-    new_node.gb_known = gb_known
-    new_node.witness_set = new_witness
+    append!(new_node.gb, known_zd)
+    new_node.gb_known = false
+    new_node.witness_set = version == "probabilistic" ? msolve_saturate(vcat(node.witness_set, known_zd), p) : node.witness_set
     push!(node.children, new_node)
     return new_node
 end
@@ -207,12 +209,7 @@ function remove!(node::DecompNode, P::Vector{POL}, f::POL, zd::POL)
     println("presplitting")
     for (i, p) in enumerate(P)
         println("computing sample points for $(i)th p")
-        new_node = nonzero!(node, p)
-        push!(new_node.gb, zd)
-        new_node.witness_set = compute_witness_set(equations(new_node),
-                                                   new_node.nonzero,
-                                                   dimension(new_node),
-                                                   new_node.hyperplanes)
+        new_node = nonzero!(node, p, [zd])
         if is_empty_set!(new_node)
             println("component is empty, going to next equation")
             pop!(node.children)
