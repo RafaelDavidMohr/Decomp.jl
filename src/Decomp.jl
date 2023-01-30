@@ -360,6 +360,7 @@ function print_info(node::DecompNode)
     R = ring(node)
     comps = filter(nd -> !(R(1) in nd.witness_set), collect(Leaves(node)))
     println("$(length(collect(Leaves(node))) - length(comps)) empty components")
+    println("$(length(comps)) non-empty components")
     number_emb_comps = 0
     dim_degree = Dict{Int, Int}([(i, 0) for i in 0:(ngens(R) - 1)])
     sort!(comps, by = nd -> dimension(nd), rev = true)
