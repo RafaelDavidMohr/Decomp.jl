@@ -18,7 +18,7 @@ function msolve_saturate(idl_gens::Vector{POL}, f::POL;
     F = hom(R, S, vars[2:end])
     elim_hom = hom(S, R, pushfirst!(gens(R), R(0)))
     J = ideal(S, push!([F(p) for p in idl_gens], vars[1]*F(f) - 1))
-    gb = f4(J, eliminate = 1, info_level = infolevel, complete_reduction = true)
+    gb = f4(J, eliminate = 1, info_level = infolevel, complete_reduction = true, la_option = 42)
     return (elim_hom).(gens(gb))
 end
 

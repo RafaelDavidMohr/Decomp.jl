@@ -19,6 +19,7 @@ mutable struct DecompNode
     seq::Vector{POL}
     added_by_sat::Vector{Vector{POL}}
     nonzero::Vector{POL}
+    nonzero_processed_until::Int
     gb::Vector{POL}
     gb_known::Bool
     witness_set::Vector{POL}
@@ -43,6 +44,7 @@ function new_child(node::DecompNode)
     new_node = DecompNode(copy(node.seq),
                           copy(node.added_by_sat),
                           copy(node.nonzero),
+                          node.nonzero_processed_until,
                           copy(node.gb),
                           node.gb_known,
                           copy(node.witness_set),
@@ -77,10 +79,11 @@ function compute_gb!(node::DecompNode)
         # sort!(node.nonzero, by = p -> total_degree(p))
         R = ring(node)
         res = equations(node)
-        for h in node.nonzero
+        for h in node.nonzero[node.nonzero_processed_until+1:end]
             res = msolve_saturate(res, h) 
         end
         node.gb_known = true
+        node.nonzero_processed_until = length(node.nonzero)
         node.gb = res
     end
     return node.gb
@@ -182,6 +185,9 @@ function zero!(node::DecompNode,
     new_dim = dimension(node) - length(append_to_seq)
     new_witness = version == "probabilistic" ? compute_witness_set(idl_gens, node.nonzero, new_dim, node.hyperplanes) : node.witness_set
     new_node = new_child(node)
+    if !isempty(append_to_seq)
+        new_node.nonzero_processed_until = 0
+    end 
     push!(new_node.added_by_sat, append_to_sat)
     append!(new_node.seq, append_to_seq)
     new_node.witness_set = new_witness
@@ -315,7 +321,7 @@ function decomp(sys::Vector{POL};
     hyperplanes = [random_lin_comb(R, [gens(R)[1:end]..., R(1)]) for _ in 1:ngens(R)]
     initial_witness = version == "probabilistic" ? compute_witness_set(first_eqns, POL[], ngens(R) - 1, hyperplanes) : first_eqns
     initial_node = DecompNode(first_eqns, Vector{POL}[],
-                              POL[], first_eqns, true,
+                              POL[], 0, first_eqns, true,
                               initial_witness,
                               sys[2:end],
                               hyperplanes,
