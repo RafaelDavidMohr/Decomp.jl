@@ -111,9 +111,9 @@ function does_vanish(node::DecompNode, f::POL;
                      version = "probabilistic")
 
     if version == "probabilistic"
-        # gb = msolve_saturate(node.witness_set, f)
-        # return one(ring(node)) in gb
-        return iszero(Oscar.normal_form(f, node.witness_set))
+        gb = msolve_saturate(node.witness_set, f)
+        return one(ring(node)) in gb
+        # return iszero(Oscar.normal_form(f, node.witness_set))
     else
         return iszero(reduce(f, node, version = "determ"))
     end
@@ -208,7 +208,7 @@ function remove!(node::DecompNode, P::Vector{POL}, f::POL, zd::POL)
     R = ring(node)
     println("presplitting")
     for (i, p) in enumerate(P)
-        println("computing sample points for $(i)th p")
+        println("computing sample points for $(i)th p: $(p)")
         new_node = nonzero!(node, p, [zd])
         if is_empty_set!(new_node)
             println("component is empty, going to next equation")
