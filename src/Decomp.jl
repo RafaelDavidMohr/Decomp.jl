@@ -76,15 +76,19 @@ equations(node::DecompNode) = vcat(node.seq, node.added_by_sat..., node.gb)
 function compute_gb!(node::DecompNode)
 
     if !node.gb_known
-        # sort!(node.nonzero, by = p -> total_degree(p))
         R = ring(node)
-        res = equations(node)
-        for h in node.nonzero[node.nonzero_processed_until+1:end]
-            res = msolve_saturate(res, h) 
+        node.gb = equations(node)
+        node.nonzero_processed_until = 0
+        for h in node.nonzero
+            node.gb = msolve_saturate(node.gb, h) 
         end
+        # ???????????????????????????????????????????????????????????????
+        # ?? WHY DO I HAVE TO DO THIS HERE EVEN IF NONZERO IS NONEMPTY ??
+        # ??? AND EVEN IF OSCAR SAIS THAT NODE.GB IS A GRÖBNER BASIS ????
+        # ???????????????????????????????????????????????????????????????
+        node.gb = gens(f4(ideal(R, node.gb), complete_reduction = true))
         node.gb_known = true
         node.nonzero_processed_until = length(node.nonzero)
-        node.gb = res
     end
     return node.gb
 end
@@ -118,7 +122,7 @@ function does_vanish(node::DecompNode, f::POL;
         return one(ring(node)) in gb
         # return iszero(Oscar.normal_form(f, node.witness_set))
     else
-        return iszero(reduce(f, node, version = "determ"))
+        return iszero(reduce(f, node))
     end
 end
 
@@ -170,9 +174,9 @@ function ann(node::DecompNode, f::POL)
 
     compute_gb!(node)
     gb = msolve_saturate(node.gb, f)
-    # res = reduce(gb, node)
-    # return filter!(p -> !iszero(p), res)
-    return gb
+    res = reduce(gb, node)
+    return filter!(p -> !iszero(p), res)
+    # return gb
 end
         
 function zero!(node::DecompNode, 
@@ -248,7 +252,7 @@ function remove_deterministic!(node::DecompNode, P::Vector{POL}, f::POL, zd::POL
 
     isempty(P) && return DecompNode[]
     new_nodes = [begin
-                     println("setting $(i)th p nonzero")
+                     println("setting $(i)th p nonzero: $(p)")
                      new_nd = nonzero!(node, p, version = "deter")
                      push!(new_nd.gb, zd)
                      new_nd
@@ -296,7 +300,7 @@ function inter!(node::DecompNode;
         println("is regular")
         return [zero!(node, POL[], [f], version = version)]
     else # we split
-        println("splitting along equation of degree $(total_degree(g))")
+        println("splitting along equation of degree $(total_degree(g)), $(g)")
         H = ann(node, g)
         println("$(length(H)) zero divisors")
         if version == "probabilistic"
