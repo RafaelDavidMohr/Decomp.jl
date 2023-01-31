@@ -33,11 +33,11 @@ mutable struct DecompNode
     children::Vector{DecompNode}
 end
 
-function Base.show(io::IO, node::DecompNode)
-    print(io, """codim $(length(node.seq)),
-                 reg seq lms $([leading_monomial(p) for p in node.seq]),
-                 nonzero lms: $([leading_monomial(h) for h in node.nonzero])""")
-end
+# function Base.show(io::IO, node::DecompNode)
+#     print(io, """codim $(length(node.seq)),
+#                  reg seq lms $([leading_monomial(p) for p in node.seq]),
+#                  nonzero lms: $([leading_monomial(h) for h in node.nonzero])""")
+# end
 
 function new_child(node::DecompNode)
 
@@ -214,7 +214,7 @@ function remove!(node::DecompNode, P::Vector{POL}, f::POL, zd::POL)
     R = ring(node)
     println("presplitting")
     for (i, p) in enumerate(P)
-        println("computing sample points for $(i)th p: $(p)")
+        println("computing sample points for $(i)th p")
         new_node = nonzero!(node, p, POL[])
         if is_empty_set!(new_node)
             println("component is empty, going to next equation")
