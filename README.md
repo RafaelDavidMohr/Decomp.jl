@@ -7,11 +7,14 @@ into equidimensional locally closed sets based on the computer algebra
 system [Oscar](https://oscar.computeralgebra.de/). To install, clone this repository into a directory of your
 choice and add it to your Julia environment:
 
-    git clone some_url
+    git clone https://github.com/RafaelDavidMohr/Decomp.jl.git 
 
 Then inside your Julia REPL run
 
-    using Pkg; Pkg.add("/path/to/clone/of/this/repo/Decomp.jl/")
+```julia
+julia> using Pkg; Pkg.add("/path/to/clone/of/this/repo/Decomp.jl/")
+```
+
 
 The main function of this package is called `decomp` which takes as
 input a `Vector{gfp_mpoly}` of multivariate Oscar polynomials defined
@@ -32,17 +35,21 @@ of the algebraic set defined by the input vector of polynomials. The
 ideals associated to these leaves can be extracted with the function
 `extract_ideals`: 
 
+```julia
     using Decomp
     R, (x, y, z) = PolynomialRing(GF(11), ["x", "y", "z"]);
     F = [x*y, y*z];
     root = decomp(F);
     extract_ideals(root)
+```
 
 returns
 
+```julia
     2-element Vector{MPolyIdeal{gfp_mpoly}}:
      ideal(z, x*y)
      ideal(y)
+```
 
 **NOTE**: The behaviour of the algorithm may vary wildly depending on the
 order of the elements in the input Vector of polynomials.
