@@ -1,5 +1,4 @@
 
-# Table of Contents
 
 
 
@@ -16,13 +15,16 @@ Then inside your Julia REPL run
 
 The main function of this package is called `decomp` which takes as
 input a `Vector{gfp_mpoly}` of multivariate Oscar polynomials defined
-over a finite field of positive characteristic. We refer to [the Oscar
-documentation](https://docs.oscar-system.org/stable/) for more information about how to define polynomials in
-Oscar. In addition `decomp` has the keyword argument `version`. This
-keyword determines if a probabilistic (and usually faster) version of
-the algorithm or a deterministic version is run. By default it is
-set to `"probabilistic"`, for any other value the implementation runs
-the deterministic version.
+over a finite field of positive characteristic and decomposes the
+algebraic set defined by this `Vector` into equidimensional locally
+closed sets. We refer to [the Oscar
+documentation](https://docs.oscar-system.org/stable/) for more
+information about how to define polynomials in Oscar. In addition
+`decomp` has the keyword argument `version`. This keyword determines
+if a probabilistic (and usually faster) version of the algorithm or a
+deterministic version is run. By default it is set to
+`"probabilistic"`, for any other value the implementation runs the
+deterministic version.
 
 The implementation stores its output in a tree data structure whose
 root `decomp` returns. The leaves of this tree represent the decomposition
