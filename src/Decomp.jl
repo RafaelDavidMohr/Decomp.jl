@@ -33,12 +33,6 @@ mutable struct DecompNode
     children::Vector{DecompNode}
 end
 
-# function Base.show(io::IO, node::DecompNode)
-#     print(io, """codim $(length(node.seq)),
-#                  reg seq lms $([leading_monomial(p) for p in node.seq]),
-#                  nonzero lms: $([leading_monomial(h) for h in node.nonzero])""")
-# end
-
 function new_child(node::DecompNode)
 
     new_node = DecompNode(copy(node.seq),
@@ -170,13 +164,15 @@ function find_nontrivial_zero_divisor!(node::DecompNode, f::POL;
     return zero(f)
 end
 
-function ann(node::DecompNode, f::POL)
+function ann(node::DecompNode, f::POL; version = "probabilistic")
 
     compute_gb!(node)
     gb = msolve_saturate(node.gb, f)
-    res = reduce(gb, node)
-    return filter!(p -> !iszero(p), res)
-    # return gb
+    if version != "probabilistic"
+        res = reduce(gb, node)
+        return filter!(p -> !iszero(p), res)
+    end
+    return gb
 end
         
 function zero!(node::DecompNode, 
@@ -263,7 +259,7 @@ function remove_deterministic!(node::DecompNode, P::Vector{POL}, f::POL, zd::POL
         P1 = POL[]
         P2 = POL[]
         for (j, q) in enumerate(P[1:i-1])
-            anni = ann(new_nodes[i], q)
+            anni = ann(new_nodes[i], q, version = "det")
             if isempty(anni)
                 println("regular intersection with $(j)th q detected")
                 new_nodes[i] = zero!(new_nodes[i], POL[], [q],
@@ -301,7 +297,7 @@ function inter!(node::DecompNode;
         return [zero!(node, POL[], [f], version = version)]
     else # we split
         println("splitting along equation of degree $(total_degree(g)), $(g)")
-        H = ann(node, g)
+        H = ann(node, g, version = version)
         println("$(length(H)) zero divisors")
         if version == "probabilistic"
             new_nodes = remove!(node, H, f, g)
@@ -359,17 +355,22 @@ function extract_ideals(node::DecompNode)
     filter!(idl -> !(R(1) in idl), [ideal(R, nd.gb) for nd in Leaves(node)])
 end
 
-function print_info(node::DecompNode)
+function print_info(node::DecompNode; version = "probabilistic")
     println("extracting degree/dimension info, this may take a while...")
     R = ring(node)
-    comps = filter(nd -> !(R(1) in nd.witness_set), collect(Leaves(node)))
+    comps = filter(nd -> !(is_empty_set!(node, version = version)), collect(Leaves(node)))
     println("$(length(collect(Leaves(node))) - length(comps)) empty components")
     println("$(length(comps)) non-empty components")
     number_emb_comps = 0
     dim_degree = Dict{Int, Int}([(i, 0) for i in 0:(ngens(R) - 1)])
     sort!(comps, by = nd -> dimension(nd), rev = true)
     for (i, nd) in enumerate(comps)
-        ws_gens = copy(nd.witness_set)
+        ws_gens = if version == "probabilistic"
+            copy(nd.witness_set)
+        else
+            compute_witness_set(equations(nd), nd.nonzero, dimension(nd),
+                                nd.hyperplanes)
+        end
         for lower_dim in comps[1:i-1]
             compute_gb!(lower_dim)
             if dimension(lower_dim) > dimension(nd) 
