@@ -345,6 +345,145 @@ function decomp(sys::Vector{POL};
     return initial_node
 end
 
+#--- Kalkbrener Decomposition ---#
+
+mutable struct KalkNode
+    seq::Vector{POL}
+    nonzero::Vector{POL}
+    # add in kth list after first k elements of sequence
+    added_by_nz::Vector{Vector{POL}}
+    syz_cache::Vector{POL}
+
+    # info about intermediate ideal
+    regular_until::Int
+    intermediate_witness::Vector{POL}
+    intermediate_gb_known::Bool
+    intermediate_gb::Vector{POL}
+
+    # info about complete ideal
+    gb_known::Bool
+    gb::Vector{POL}
+end
+
+function new_node(node::KalkNode)
+    return KalkNode(copy(node.seq), copy(node.nonzero), copy(node.added_by_nz),
+                    copy(node.syz_cache), node.regular_until,
+                    copy(node.intermediate_witness), node.intermediate_gb_known,
+                    copy(node.intermediate_gb), node.gb_known, copy(node.gb))
+end
+
+ring(node::KalkNode) = parent(first(node.seq))
+dimension(node::KalkNode) = ngens(ring(node)) - node.regular_until
+
+function equations(node::KalkNode, k::Int)
+    return vcat(k == length(node.seq) ? node.gb : node.intermediate_gb,
+                node.seq[1:k], node.added_by_nz[1:k]...)
+end
+
+function compute_gb(node::KalkNode, k::Int)
+
+    gb = equations(node)
+    for h in node.nonzero
+        gb = msolve_saturate(gb, h)
+    end
+    gb = f4(ideal(ring(node), gb), complete_reduction = true,
+            la_option = 42)
+    return gb
+end
+
+function compute_intermed_gb!(node::KalkNode)
+    node.intermediate_gb_known && return
+    gb = compute_gb(node, node.regular_until)
+    node.intermediate_gb = gb
+    node.intermediate_gb_known = true
+    return
+end
+
+function compute_full_gb!(node::KalkNode)
+    node.gb_known && return
+    gb = compute_gb(node, length(node.seq))
+    node.gb = gb
+    node.gb_known = true
+    return
+end
+
+function does_vanish_over_seq(node::KalkNode, f::POL)
+
+    gb = msolve_saturate(node.intermediate_witness, f)
+    iszero(Oscar.normal_form(one(ring(node)), gb))
+end
+
+function syz!(node::KalkNode)
+
+    node.regular_until == length(node.seq) && return zero(ring(node))
+    while !isempty(node.syz_cache)
+        does_vanish_over_seq(node, g) && continue
+        return g
+    end
+    f = node.seq[node.regular_until+1]
+    compute_intermed_gb!(node)
+    zds = msolve_saturate(node.gb, f)
+    node.syz_cache = zds
+    for g in node.syz_cache[node.regular_until+1]
+        does_vanish_over_reg_seq(node, g) && continue
+        return g
+    end
+    return zero(ring(node))
+end
+
+function nonzero!(node::KalkNode, f::POL)
+
+    node.intermediate_witness = msolve_saturate(node.intermediate_witness, f)
+    push!(node.nonzero, f)
+    if node.gb_known
+        node.gb = msolve_saturate(node.gb, f)
+    else
+        compute_full_gb!(node)
+    end
+    return random_lin_comb(ring(node), node.gb)
+end
+    
+function proper_zero!(node::KalkNode)
+    node.regular_until += 1
+    node.intermediate_gb_known = false
+    node.intermediate_witness = compute_witness_set(equations(node,
+                                                              node.regular_until),
+                                                    node.nonzero,
+                                                    dimension(node),
+                                                    random_lin_forms(ring(node),
+                                                                     dimension(node)))
+end
+
+function improper_zero!(node::KalkNode)
+    deleteat!(node.seq, node.regular_until+1)
+    append!(node.added_by_nz[node.regular_until],
+            node.added_by_nz[node.regular_until+1])
+    deleteat!(node.syz_cache, node.regular_until+1)
+    deleteat!(node.added_by_nz[node.regular_until+1])
+end
+
+function remove!(node::KalkNode, H::Vector{POL})
+
+end 
+
+function split!(node::KalkNode)
+
+    # TODO: regularity check via witness
+    g = syz!(node)
+    if iszero(g)
+        proper_zero!(node)
+        return [node]
+    end
+    high_dim = new_node(node)
+    nonzero!(high_dim, g)
+    improper_zero!(high_dim)
+    H = high_dim.gb
+    lower_dim = remove!(node, H)
+    return push!(lower_dim, high_dim)
+end
+    
+
+
 #--- User utility functions ---#
 
 function extract_ideals(node::DecompNode)

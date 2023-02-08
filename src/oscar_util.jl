@@ -66,6 +66,10 @@ function random_lin_comb(R::POLR, P::Vector{POL})
     random_lin_comb(R, P, characteristic(R) - 1)
 end
 
+function random_lin_forms(R::POLR, n::Int)
+    return [random_lin_comb(R, vcat(gens(R), [one(R)])) for _ in 1:n]
+end
+
 function cyclic(vars)
     n = length(vars)
     pols = [sum(prod(vars[j%n+1] for j in k:k+i) for k in 1:n) for i in 0:n-2]
