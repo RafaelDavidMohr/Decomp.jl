@@ -107,7 +107,7 @@ function radical_contained_in(I1::POLI, I2::POLI)
     R = base_ring(I1)
     f = random_lin_comb(R, gens(I2))
     tes = msolve_saturate(gens(I1), f)
-    Base.iszero(normal_form(R(1), tes))
+    return R(1) in ideal(R, tes)
 end
 
 function radical_eq(I1::POLI, I2::POLI)
