@@ -212,7 +212,7 @@ function remove!(node::DecompNode, P::Vector{POL}, f::POL, zd::POL)
     isempty(P) && return DecompNode[]
     new_nodes = DecompNode[]
     R = ring(node)
-    println("presplitting")
+    println("presplitting along $(length(P)) equations")
     for (i, p) in enumerate(P)
         println("computing sample points for $(i)th p")
         new_node = nonzero!(node, p, POL[])
