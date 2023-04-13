@@ -1,8 +1,4 @@
 
-# Table of Contents
-
-
-
 This is an implementation of an algorithm to decompose algebraic sets
 into equidimensional locally closed sets based on the computer algebra
 system [Oscar](https://oscar.computeralgebra.de/). 
