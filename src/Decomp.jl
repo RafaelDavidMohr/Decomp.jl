@@ -359,6 +359,7 @@ mutable struct KalkNode
     regular_until::Int
     intermediate_gb::Vector{POL}
     intermediate_gb_known::Bool
+    intermediate_witness::Vector{POL}
 
     # info about complete ideal
     complete_gb::Vector{POL}
@@ -372,6 +373,7 @@ function new_node(node::KalkNode)
                     node.regular_until,
                     copy(node.intermediate_gb),
                     node.intermediate_gb_known,
+                    copy(node.intermediate_witness),
                     copy(node.complete_gb),
                     node.complete_gb_known)
 end
@@ -389,6 +391,7 @@ function compute_complete_gb!(node::KalkNode)
 
     if !node.complete_gb_known
         gb = vcat(node.complete_gb, node.seq, node.added_zero_divisors...)
+        # TODO: we may not need to do this every time
         for h in node.nonzero
             gb = msolve_saturate(gb, h)
         end
@@ -405,6 +408,7 @@ function compute_intermed_gb!(node::KalkNode)
     if !node.intermediate_gb_known
         gb = vcat(node.intermediate_gb, node.seq[1:node.regular_until],
                   node.added_zero_divisors[1:node.regular_until]...)
+        # TODO: see above
         for h in node.nonzero
             gb = msolve_saturate(gb, h)
         end
@@ -421,9 +425,16 @@ function syz!(node::KalkNode)
     R = ring(node)
     node.regular_until == length(node.seq) && return zero(R)
     f = node.seq[node.regular_until+1]
+    gb = gens(f4(ideal(R, node.intermediate_witness) + ideal(R, f),
+                 complete_reduction = true))
+    if R(1) in gb
+        proper_zero!(node)
+        return zero(R)
+    end
+        
     # TODO: is this ok because of the commutativity of saturations
     G = if isempty(node.zd_cashe)
-        println("saturating, gb of node is known: $(node.intermed_gb_known)")
+        println("saturating, gb of node is known: $(node.intermediate_gb_known)")
         sat = msolve_saturate(compute_intermed_gb!(node), f)
         node.zd_cashe = sat
     else
@@ -457,6 +468,10 @@ function nonzero!(node::KalkNode, f::POL)
         node.complete_gb = msolve_saturate(gb, f)
         node.complete_gb_known = true
         node.intermediate_gb_known = false
+        node.intermediate_witness = compute_witness_set(vcat(node.intermediate_gb,
+                                                             node.seq[1:node.regular_until],
+                                                             node.added_zero_divisors[1:node.regular_until]...),
+                                                        node.nonzero, dimension(node))
     end
     return random_lin_comb(R, compute_complete_gb!(node))
 end
@@ -466,6 +481,10 @@ function proper_zero!(node::KalkNode)
     empty!(node.zd_cashe)
     node.intermediate_gb_known = false
     node.regular_until += 1
+    node.intermediate_witness = compute_witness_set(vcat(node.intermediate_gb,
+                                                         node.seq[1:node.regular_until],
+                                                         node.added_zero_divisors[1:node.regular_until]...),
+                                                    node.nonzero, dimension(node))
     return node
 end
 
@@ -530,8 +549,9 @@ function kalkdecomp(F::Vector{POL})
 
     isempty(F) && error("no")
     R = parent(first(F))
+    initial_witness = compute_witness_set([F[1]], POL[], ngens(R) - 1) 
     initial_node = KalkNode(F, POL[], [POL[] for f in F],
-                            POL[], 1, POL[F[1]], true,
+                            POL[], 1, POL[F[1]], true, initial_witness,
                             POL[], false)
     queue = [initial_node]
     done = KalkNode[]

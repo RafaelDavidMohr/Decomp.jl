@@ -56,6 +56,11 @@ function compute_witness_set(id_gens::Vector{POL}, nonzero::Vector{POL}, d::Int,
     return result
 end
 
+function compute_witness_set(id_gens::Vector{POL}, nonzero::Vector{POL}, d::Int)
+    R = parent(first(id_gens))
+    return compute_witness_set(id_gens, nonzero, d, random_lin_forms(R, d))
+end
+
 function random_lin_comb(R, P, upper_bound)
 
     sum([rand(1:upper_bound)*p for p in P])
