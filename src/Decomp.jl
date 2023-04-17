@@ -361,8 +361,11 @@ mutable struct KalkNode
 end
 
 function new_node(node::KalkNode)
-    return KalkNode(copy(node.seq), copy(node.nonzero), copy(node.added_zero_divisors),
-                    node.regular_until, node.intermediate_ideal, node.complete_ideal)
+    return KalkNode(copy(node.seq), copy(node.nonzero),
+                    (copy).(node.added_zero_divisors),
+                    node.regular_until,
+                    node.intermediate_ideal,
+                    node.complete_ideal)
 end
 
 ring(node::KalkNode) = parent(first(node.seq))
@@ -388,7 +391,7 @@ end
 
 function compute_intermed_ideal!(node::KalkNode)
 
-    node.intermediate_ideal = compute_ideal(node, length(node.seq))
+    node.intermediate_ideal = compute_ideal(node, node.regular_until)
 end
 
 function syz(node::KalkNode)
@@ -404,6 +407,7 @@ function syz(node::KalkNode)
             continue
         end
         g = first(G)
+        break
     end
     return g
 end
@@ -455,27 +459,26 @@ end
 
 function split!(node::KalkNode)
 
-    g = syz!(node)
+    g = syz(node)
     println("splitting along element of degree $(total_degree(g))")
     if iszero(g)
         # regular intersection
         println("regular")
-        return proper_zero!(node)
+        return [proper_zero!(node)]
     elseif isone(g)
         # f vanishes
         println("vanishes")
-        return improper_zero!(node)
+        return [improper_zero!(node)]
     end
     high_dim = new_node(node)
     nonzero!(high_dim, g)
     improper_zero!(high_dim)
     R = ring(node)
-    H = gens(high_dim.ideal)
+    H = gens(high_dim.complete_ideal)
     println("setting $(length(H)) elements nonzero")
     low_dim = new_node(node)
-    push!(low_dim.added_zero_divisors[node.regular_until+1], g)
+    push!(low_dim.added_zero_divisors[node.regular_until], g)
     lower_dim = remove!(low_dim, H)
-    res = push!(lower_dim, high_dim)
     
     return push!(lower_dim, high_dim)
 end
@@ -485,9 +488,7 @@ function kalkdecomp(F::Vector{POL})
     isempty(F) && error("no")
     R = parent(first(F))
     initial_node = KalkNode(F, POL[], [POL[] for f in F],
-                            POL[], 1, compute_witness_set([F[1]], POL[], ngens(R) - 1,
-                                                          random_lin_forms(R, ngens(R) - 1)),
-                            true, [F[1]], false, copy(F))
+                            1, ideal(R, first(F)), ideal(R, F))
     queue = [initial_node]
     done = KalkNode[]
 
@@ -503,9 +504,6 @@ function kalkdecomp(F::Vector{POL})
         append!(queue, nodes)
     end
 
-    for c in done
-        compute_full_gb!(c)
-    end
     return done
 end
 
