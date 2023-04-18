@@ -443,13 +443,11 @@ function syz!(node::KalkNode)
     g = zero(R)
     println("trying to find non-trivial zero divisor")
     while !isempty(G)
-        if iszeromod(first(G), compute_intermed_gb!(node))
-            popfirst!(G)
-            continue
-        elseif iszeromod(first(G), compute_complete_gb!(node))
+        if iszeromod(first(G), compute_complete_gb!(node))
             push!(node.added_zero_divisors[node.regular_until], popfirst!(G))
             continue
         end
+        println("found nontrivial zero divisor")
         g = popfirst!(G)
         break
     end
@@ -511,7 +509,10 @@ function remove!(node::KalkNode, H::Vector{POL})
             println("saturating by $(j)th p")
             nonzero!(new_nd, p)
         end
-        is_empty_set!(new_nd) && continue
+        if is_empty_set!(new_nd)
+            println("is empty, going to next element...")
+            continue
+        end
         push!(res, new_nd)
         push!(P, zd)
         println("-------")
