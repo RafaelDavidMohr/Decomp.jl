@@ -352,6 +352,7 @@ iszeromod(f::POL, gb::Vector{POL}) = iszero(Oscar.reduce(f, gb))
 mutable struct KalkNode
     seq::Vector{POL}
     nonzero::Vector{POL}
+    nz_processed::Int
     added_zero_divisors::Vector{Vector{POL}}
     zd_cashe::Vector{POL}
 
@@ -368,6 +369,7 @@ end
 
 function new_node(node::KalkNode)
     return KalkNode(copy(node.seq), copy(node.nonzero),
+                    node.nz_processed,
                     (copy).(node.added_zero_divisors),
                     copy(node.zd_cashe),
                     node.regular_until,
@@ -392,10 +394,12 @@ function compute_complete_gb!(node::KalkNode)
     if !node.complete_gb_known
         gb = vcat(node.complete_gb, node.seq, node.added_zero_divisors...)
         # TODO: we may not need to do this every time
-        for h in node.nonzero
+        for h in node.nonzero[node.nz_processed+1:end]
             gb = msolve_saturate(gb, h)
+            node.nz_processed += 1
         end
-        node.complete_gb = gens(f4(ideal(ring(node), gb), complete_reduction = true))
+        node.complete_gb = gens(f4(ideal(ring(node), gb),
+                                   complete_reduction = true))
         node.complete_gb_known = true
         return gb
     else
@@ -457,19 +461,23 @@ function syz!(node::KalkNode)
     return g
 end
 
-function nonzero!(node::KalkNode, f::POL)
+function nonzero!(node::KalkNode, F::Vector{POL})
 
     R = ring(node)
-    if !isone(f)
-        push!(node.nonzero, f)
+    G = filter(!isone, F)
+    if !isempty(G)
+        append!(node.nonzero, G)
         gb = compute_complete_gb!(node)
-        node.complete_gb = msolve_saturate(gb, f)
+        # TODO: is there a more optimal way of doing this?
+        # TODO: Trying to reduce prod(G) mod gb crashes Oscar
+        node.complete_gb = msolve_saturate(gb, prod(G))
         node.complete_gb_known = true
         node.intermediate_gb_known = false
         node.intermediate_witness = compute_witness_set(vcat(node.intermediate_gb,
                                                              node.seq[1:node.regular_until],
                                                              node.added_zero_divisors[1:node.regular_until]...),
                                                         node.nonzero, dimension(node))
+        push!(node.added_zero_divisors[end], one(R))
     end
     return random_lin_comb(R, compute_complete_gb!(node))
 end
@@ -501,19 +509,16 @@ function remove!(node::KalkNode, H::Vector{POL})
     res = KalkNode[]
     P = POL[]
     for (i, h) in enumerate(H)
-        println("saturating by $(i)th h")
+        println("saturating by $(i)th h and P")
         new_nd = new_node(node)
         append!(new_nd.added_zero_divisors[end], H[1:i-1])
-        zd = nonzero!(new_nd, h)
-        for (j, p) in enumerate(P)
-            println("saturating by $(j)th p")
-            nonzero!(new_nd, p)
-        end
+        zd = nonzero!(new_nd, [h, P...])
         if is_empty_set!(new_nd)
             println("is empty, going to next element...")
             continue
         end
         push!(res, new_nd)
+        # TODO: check if adding this zd is still correct
         push!(P, zd)
         println("-------")
     end
@@ -535,7 +540,7 @@ function split!(node::KalkNode)
         return [improper_zero!(node)]
     end
     high_dim = new_node(node)
-    nonzero!(high_dim, g)
+    nonzero!(high_dim, [g])
     R = ring(node)
     H = compute_complete_gb!(high_dim)
     improper_zero!(high_dim)
@@ -551,7 +556,7 @@ function kalkdecomp(F::Vector{POL})
     isempty(F) && error("no")
     R = parent(first(F))
     initial_witness = compute_witness_set([F[1]], POL[], ngens(R) - 1) 
-    initial_node = KalkNode(F, POL[], [POL[] for f in F],
+    initial_node = KalkNode(F, POL[], 0, [POL[] for f in F],
                             POL[], 1, POL[F[1]], true, initial_witness,
                             POL[], false)
     queue = [initial_node]
