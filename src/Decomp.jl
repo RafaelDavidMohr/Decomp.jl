@@ -424,6 +424,7 @@ function compute_intermed_gb!(node::KalkNode)
     end
 end
 
+
 function syz!(node::KalkNode)
 
     R = ring(node)
@@ -449,6 +450,7 @@ function syz!(node::KalkNode)
     while !isempty(G)
         if iszeromod(first(G), compute_complete_gb!(node))
             push!(node.added_zero_divisors[node.regular_until], popfirst!(G))
+            node.intermediate_gb_known = false
             continue
         end
         println("found nontrivial zero divisor")
@@ -477,7 +479,6 @@ function nonzero!(node::KalkNode, F::Vector{POL})
                                                              node.seq[1:node.regular_until],
                                                              node.added_zero_divisors[1:node.regular_until]...),
                                                         node.nonzero, dimension(node))
-        push!(node.added_zero_divisors[end], one(R))
     end
     return random_lin_comb(R, compute_complete_gb!(node))
 end
@@ -496,8 +497,7 @@ end
 
 function improper_zero!(node::KalkNode)
     deleteat!(node.seq, node.regular_until+1)
-    append!(node.added_zero_divisors[node.regular_until],
-            node.added_zero_divisors[node.regular_until+1])
+    node.added_zero_divisors[node.regular_until] = node.added_zero_divisors[node.regular_until+1]
     deleteat!(node.added_zero_divisors, node.regular_until+1)
     empty!(node.zd_cashe)
     node.intermediate_gb_known = false
@@ -529,7 +529,6 @@ function split!(node::KalkNode)
 
     println("checking regularity of $(node.regular_until+1)th element")
     g = syz!(node)
-    println("splitting along element of degree $(total_degree(g))")
     if iszero(g)
         # regular intersection
         println("regular")
@@ -539,16 +538,16 @@ function split!(node::KalkNode)
         println("vanishes")
         return [improper_zero!(node)]
     end
+    println("splitting along element of degree $(total_degree(g))")
     high_dim = new_node(node)
     nonzero!(high_dim, [g])
-    R = ring(node)
-    H = compute_complete_gb!(high_dim)
     improper_zero!(high_dim)
-    low_dim = new_node(node)
-    push!(low_dim.added_zero_divisors[node.regular_until], g)
-    println("setting $(length(H)) elements nonzero")
-    lower_dim = remove!(low_dim, H)
-    return push!(lower_dim, high_dim)
+    node.seq = insert!(copy(node.seq), node.regular_until+1, g)
+    insert!(node.added_zero_divisors, node.regular_until, POL[])
+    empty!(node.zd_cashe)
+    node.nz_processed = 0
+    node.complete_gb_known = false
+    return [node, high_dim]
 end
 
 function kalkdecomp(F::Vector{POL})
@@ -578,6 +577,13 @@ function kalkdecomp(F::Vector{POL})
 end
 
 #--- User utility functions ---#
+
+function extract_ideals(nodes::Vector{KalkNode})
+    for node in nodes
+        compute_complete_gb!(node)
+    end
+    return [ideal(ring(node), node.complete_gb) for node in nodes]
+end
 
 function extract_ideals(node::DecompNode)
     R = ring(node)
