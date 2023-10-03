@@ -6,7 +6,7 @@ using Reexport
 
 include("oscar_util.jl")
 
-export decomp, extract_ideals, print_info
+export decomp, extract_ideals, print_info, kalkdecomp
 
 # helpers
 function delete_and_return!(d::Dict{K, V}, k::K) where {K, V}
@@ -124,8 +124,8 @@ function is_regular_int(node::DecompNode, f::POL)
 
     does_vanish(node, f) && return "vanishes"
     R = ring(node)
-    gb = f4(ideal(R, node.witness_set) + ideal(R, f),
-            complete_reduction = true)
+    gb = gens(f4(ideal(R, node.witness_set) + ideal(R, f),
+                 complete_reduction = true))
     R(1) in gb && return "regular"
     return "undecided"
 end
@@ -345,7 +345,245 @@ function decomp(sys::Vector{POL};
     return initial_node
 end
 
+#--- Kalkbrener Decomposition ---#
+
+iszeromod(f::POL, gb::Vector{POL}) = iszero(Oscar.reduce(f, gb))
+
+mutable struct KalkNode
+    seq::Vector{POL}
+    nonzero::Vector{POL}
+    nz_processed::Int
+    added_zero_divisors::Vector{Vector{POL}}
+    zd_cashe::Vector{POL}
+
+    # info about intermediate ideal
+    regular_until::Int
+    intermediate_gb::Vector{POL}
+    intermediate_gb_known::Bool
+    intermediate_witness::Vector{POL}
+
+    # info about complete ideal
+    complete_gb::Vector{POL}
+    complete_gb_known::Bool
+end
+
+function new_node(node::KalkNode)
+    return KalkNode(copy(node.seq), copy(node.nonzero),
+                    node.nz_processed,
+                    (copy).(node.added_zero_divisors),
+                    copy(node.zd_cashe),
+                    node.regular_until,
+                    copy(node.intermediate_gb),
+                    node.intermediate_gb_known,
+                    copy(node.intermediate_witness),
+                    copy(node.complete_gb),
+                    node.complete_gb_known)
+end
+
+ring(node::KalkNode) = parent(first(node.seq))
+dimension(node::KalkNode) = ngens(ring(node)) - node.regular_until
+
+function is_empty_set!(node::KalkNode)
+    
+    gb = compute_complete_gb!(node)
+    return iszeromod(one(ring(node)), gb)
+end
+
+function compute_complete_gb!(node::KalkNode)
+
+    if !node.complete_gb_known
+        gb = vcat(node.complete_gb, node.seq, node.added_zero_divisors...)
+        # TODO: we may not need to do this every time
+        for h in node.nonzero[node.nz_processed+1:end]
+            gb = msolve_saturate(gb, h)
+            node.nz_processed += 1
+        end
+        node.complete_gb = gens(f4(ideal(ring(node), gb),
+                                   complete_reduction = true))
+        node.complete_gb_known = true
+        return gb
+    else
+        return node.complete_gb
+    end
+end
+
+function compute_intermed_gb!(node::KalkNode)
+
+    if !node.intermediate_gb_known
+        gb = vcat(node.intermediate_gb, node.seq[1:node.regular_until],
+                  node.added_zero_divisors[1:node.regular_until]...)
+        # TODO: see above
+        for h in node.nonzero
+            gb = msolve_saturate(gb, h)
+        end
+        node.intermediate_gb = gens(f4(ideal(ring(node), gb), complete_reduction = true))
+        node.intermediate_gb_known = true
+        return node.intermediate_gb
+    else
+        return node.intermediate_gb
+    end
+end
+
+
+function syz!(node::KalkNode)
+
+    R = ring(node)
+    node.regular_until == length(node.seq) && return zero(R)
+    f = node.seq[node.regular_until+1]
+    gb = gens(f4(ideal(R, node.intermediate_witness) + ideal(R, f),
+                 complete_reduction = true))
+    if R(1) in gb
+        proper_zero!(node)
+        return zero(R)
+    end
+        
+    # TODO: is this ok because of the commutativity of saturations
+    G = if isempty(node.zd_cashe)
+        println("saturating, gb of node is known: $(node.intermediate_gb_known)")
+        sat = msolve_saturate(compute_intermed_gb!(node), f)
+        node.zd_cashe = sat
+    else
+        node.zd_cashe
+    end
+    g = zero(R)
+    println("trying to find non-trivial zero divisor")
+    while !isempty(G)
+        if iszeromod(first(G), compute_complete_gb!(node))
+            push!(node.added_zero_divisors[node.regular_until], popfirst!(G))
+            node.intermediate_gb_known = false
+            continue
+        end
+        println("found nontrivial zero divisor")
+        g = popfirst!(G)
+        break
+    end
+    if iszero(g)
+        proper_zero!(node)
+    end
+    return g
+end
+
+function nonzero!(node::KalkNode, F::Vector{POL})
+
+    R = ring(node)
+    G = filter(!isone, F)
+    if !isempty(G)
+        append!(node.nonzero, G)
+        gb = compute_complete_gb!(node)
+        # TODO: is there a more optimal way of doing this?
+        # TODO: Trying to reduce prod(G) mod gb crashes Oscar
+        node.complete_gb = msolve_saturate(gb, prod(G))
+        node.complete_gb_known = true
+        node.intermediate_gb_known = false
+        node.intermediate_witness = compute_witness_set(vcat(node.intermediate_gb,
+                                                             node.seq[1:node.regular_until],
+                                                             node.added_zero_divisors[1:node.regular_until]...),
+                                                        node.nonzero, dimension(node))
+    end
+    return random_lin_comb(R, compute_complete_gb!(node))
+end
+    
+function proper_zero!(node::KalkNode)
+    R = ring(node)
+    empty!(node.zd_cashe)
+    node.intermediate_gb_known = false
+    node.regular_until += 1
+    node.intermediate_witness = compute_witness_set(vcat(node.intermediate_gb,
+                                                         node.seq[1:node.regular_until],
+                                                         node.added_zero_divisors[1:node.regular_until]...),
+                                                    node.nonzero, dimension(node))
+    return node
+end
+
+function improper_zero!(node::KalkNode)
+    deleteat!(node.seq, node.regular_until+1)
+    node.added_zero_divisors[node.regular_until] = node.added_zero_divisors[node.regular_until+1]
+    deleteat!(node.added_zero_divisors, node.regular_until+1)
+    empty!(node.zd_cashe)
+    node.intermediate_gb_known = false
+    return node
+end
+
+function remove!(node::KalkNode, H::Vector{POL})
+    R = ring(node)
+    res = KalkNode[]
+    P = POL[]
+    for (i, h) in enumerate(H)
+        println("saturating by $(i)th h and P")
+        new_nd = new_node(node)
+        append!(new_nd.added_zero_divisors[end], H[1:i-1])
+        zd = nonzero!(new_nd, [h, P...])
+        if is_empty_set!(new_nd)
+            println("is empty, going to next element...")
+            continue
+        end
+        push!(res, new_nd)
+        # TODO: check if adding this zd is still correct
+        push!(P, zd)
+        println("-------")
+    end
+    return res
+end
+
+function split!(node::KalkNode)
+
+    println("checking regularity of $(node.regular_until+1)th element")
+    g = syz!(node)
+    if iszero(g)
+        # regular intersection
+        println("regular")
+        return [node]
+    elseif isone(g)
+        # f vanishes
+        println("vanishes")
+        return [improper_zero!(node)]
+    end
+    println("splitting along element of degree $(total_degree(g))")
+    high_dim = new_node(node)
+    nonzero!(high_dim, [g])
+    improper_zero!(high_dim)
+    node.seq = insert!(copy(node.seq), node.regular_until+1, g)
+    insert!(node.added_zero_divisors, node.regular_until, POL[])
+    empty!(node.zd_cashe)
+    node.nz_processed = 0
+    node.complete_gb_known = false
+    return [node, high_dim]
+end
+
+function kalkdecomp(F::Vector{POL})
+
+    isempty(F) && error("no")
+    R = parent(first(F))
+    initial_witness = compute_witness_set([F[1]], POL[], ngens(R) - 1) 
+    initial_node = KalkNode(F, POL[], 0, [POL[] for f in F],
+                            POL[], 1, POL[F[1]], true, initial_witness,
+                            POL[], false)
+    queue = [initial_node]
+    done = KalkNode[]
+
+    while !isempty(queue)
+        node = pop!(queue)
+        is_empty_set!(node) && continue
+        if node.regular_until == length(node.seq)
+            println("finished node of dim $(dimension(node))")
+            push!(done, node)
+            continue
+        end
+        nodes = split!(node)
+        append!(queue, nodes)
+    end
+
+    return done
+end
+
 #--- User utility functions ---#
+
+function extract_ideals(nodes::Vector{KalkNode})
+    for node in nodes
+        compute_complete_gb!(node)
+    end
+    return [ideal(ring(node), node.complete_gb) for node in nodes]
+end
 
 function extract_ideals(node::DecompNode)
     R = ring(node)
