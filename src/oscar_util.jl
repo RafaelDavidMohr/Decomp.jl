@@ -6,7 +6,7 @@ function msolve_saturate_no_elim(idl_gens::Vector{POL}, f::POL)
     R = parent(first(idl_gens))
     vars = gens(R)
     J = ideal(R, [idl_gens..., vars[1]*f - 1])
-    gb = f4(J, eliminate = 1, complete_reduction = true, la_option = 42)
+    gb = groebner_basis_f4(J, eliminate = 1, complete_reduction = true, la_option = 42)
     return gens(gb)
 end
 
@@ -18,7 +18,7 @@ function msolve_saturate(idl_gens::Vector{POL}, f::POL;
     F = hom(R, S, vars[2:end])
     elim_hom = hom(S, R, pushfirst!(gens(R), R(0)))
     J = ideal(S, push!([F(p) for p in idl_gens], vars[1]*F(f) - 1))
-    gb = f4(J, eliminate = 1, info_level = infolevel, complete_reduction = true, la_option = 42)
+    gb = groebner_basis_f4(J, eliminate = 1, info_level = infolevel, complete_reduction = true, la_option = 42)
     return (elim_hom).(gens(gb))
 end
 
@@ -29,7 +29,7 @@ function msolve_saturate(idl_gens::Vector{POL}, P::Vector{POL};
     F = hom(R, S, vars[length(P)+1:end])
     elim_hom = hom(S, R, vcat([R(0) for _ in 1:length(P)], gens(R)))
     J = ideal(S, vcat([F(p) for p in idl_gens], [vars[i]*F(P[i]) - 1 for i in 1:length(P)]))
-    gb = f4(J, eliminate = length(P), info_level = infolevel, complete_reduction = true, la_option = 42)
+    gb = groebner_basis_f4(J, eliminate = length(P), info_level = infolevel, complete_reduction = true, la_option = 42)
     return (elim_hom).(gens(gb))
 end
 
@@ -44,7 +44,7 @@ function msolve_colon_no_elim(idl_gens::Vector{POL}, f::POL)
     R = parent(first(idl_gens))
     vars = gens(R)
     J = ideal(R, [[vars[1]*p for p in idl_gens]..., (vars[1]-1)*f])
-    gb = f4(J, eliminate = 1, complete_reduction = true, la_option = 42)
+    gb = groebner_basis_f4(J, eliminate = 1, complete_reduction = true, la_option = 42)
     @assert all(p -> divides(p, f)[1], gb)
     return filter(p -> !iszero(p), [divides(p, f)[2] for p in gens(gb)])
 end
@@ -58,7 +58,7 @@ function msolve_colon(idl_gens::Vector{POL}, f::POL;
     F = hom(R, S, vars[2:end])
     elim_hom = hom(S, R, pushfirst!(gens(R), R(0)))
     J = ideal(S, push!([vars[1]*F(p) for p in gens(I)], (vars[1]-1)*F(f)))
-    gb = f4(J, eliminate = 1, info_level = infolevel, complete_reduction = true)
+    gb = groebner_basis_f4(J, eliminate = 1, info_level = infolevel, complete_reduction = true)
     return [divides(elim_hom(p), f)[2] for p in gb]
 end
 
