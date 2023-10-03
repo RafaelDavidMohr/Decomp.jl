@@ -80,7 +80,7 @@ function compute_gb!(node::DecompNode)
         # ?? WHY DO I HAVE TO DO THIS HERE EVEN IF NONZERO IS NONEMPTY ??
         # ??? AND EVEN IF OSCAR SAIS THAT NODE.GB IS A GRÖBNER BASIS ????
         # ???????????????????????????????????????????????????????????????
-        node.gb = gens(f4(ideal(R, node.gb), complete_reduction = true))
+        node.gb = gens(groebner_basis_f4(ideal(R, node.gb), complete_reduction = true))
         node.gb_known = true
         node.nonzero_processed_until = length(node.nonzero)
     end
@@ -124,7 +124,7 @@ function is_regular_int(node::DecompNode, f::POL)
 
     does_vanish(node, f) && return "vanishes"
     R = ring(node)
-    gb = gens(f4(ideal(R, node.witness_set) + ideal(R, f),
+    gb = gens(groebner_basis_f4(ideal(R, node.witness_set) + ideal(R, f),
                  complete_reduction = true))
     R(1) in gb && return "regular"
     return "undecided"
@@ -398,8 +398,8 @@ function compute_complete_gb!(node::KalkNode)
             gb = msolve_saturate(gb, h)
             node.nz_processed += 1
         end
-        node.complete_gb = gens(f4(ideal(ring(node), gb),
-                                   complete_reduction = true))
+        node.complete_gb = gens(groebner_basis_f4(ideal(ring(node), gb),
+                                                  complete_reduction = true))
         node.complete_gb_known = true
         return gb
     else
@@ -416,7 +416,7 @@ function compute_intermed_gb!(node::KalkNode)
         for h in node.nonzero
             gb = msolve_saturate(gb, h)
         end
-        node.intermediate_gb = gens(f4(ideal(ring(node), gb), complete_reduction = true))
+        node.intermediate_gb = gens(groebner_basis_f4(ideal(ring(node), gb), complete_reduction = true))
         node.intermediate_gb_known = true
         return node.intermediate_gb
     else
@@ -430,8 +430,8 @@ function syz!(node::KalkNode)
     R = ring(node)
     node.regular_until == length(node.seq) && return zero(R)
     f = node.seq[node.regular_until+1]
-    gb = gens(f4(ideal(R, node.intermediate_witness) + ideal(R, f),
-                 complete_reduction = true))
+    gb = gens(groebner_basis_f4(ideal(R, node.intermediate_witness) + ideal(R, f),
+                                complete_reduction = true))
     if R(1) in gb
         proper_zero!(node)
         return zero(R)
