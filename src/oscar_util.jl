@@ -1,5 +1,5 @@
-const POL = gfp_mpoly
-const POLR = GFPMPolyRing
+const POL = FqMPolyRingElem 
+const POLR = FqMPolyRing
 const POLI = MPolyIdeal{POL}
 
 function msolve_saturate_no_elim(idl_gens::Vector{POL}, f::POL)
