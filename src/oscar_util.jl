@@ -14,7 +14,7 @@ function msolve_saturate(idl_gens::Vector{POL}, f::POL;
                          infolevel = 0)
 
     R = parent(f)
-    S, vars = PolynomialRing(base_ring(R), pushfirst!(["y$(i)" for i in 1:ngens(R)], "s"))
+    S, vars = polynomial_ring(base_ring(R), pushfirst!(["y$(i)" for i in 1:ngens(R)], "s"))
     F = hom(R, S, vars[2:end])
     elim_hom = hom(S, R, pushfirst!(gens(R), R(0)))
     J = ideal(S, push!([F(p) for p in idl_gens], vars[1]*F(f) - 1))
@@ -25,7 +25,7 @@ end
 function msolve_saturate(idl_gens::Vector{POL}, P::Vector{POL};
                          infolevel = 0)
     R = parent(first(P))
-    S, vars = PolynomialRing(base_ring(R), vcat(["s$(i)" for i in 1:length(P)], ["y$(i)" for i in 1:ngens(R)]))
+    S, vars = polynomial_ring(base_ring(R), vcat(["s$(i)" for i in 1:length(P)], ["y$(i)" for i in 1:ngens(R)]))
     F = hom(R, S, vars[length(P)+1:end])
     elim_hom = hom(S, R, vcat([R(0) for _ in 1:length(P)], gens(R)))
     J = ideal(S, vcat([F(p) for p in idl_gens], [vars[i]*F(P[i]) - 1 for i in 1:length(P)]))
@@ -54,7 +54,7 @@ function msolve_colon(idl_gens::Vector{POL}, f::POL;
 
     I = ideal(parent(f), idl_gens)
     R = base_ring(I)
-    S, vars = PolynomialRing(base_ring(R), pushfirst!(["y$(i)" for i in 1:ngens(R)], "t"))
+    S, vars = polynomial_ring(base_ring(R), pushfirst!(["y$(i)" for i in 1:ngens(R)], "t"))
     F = hom(R, S, vars[2:end])
     elim_hom = hom(S, R, pushfirst!(gens(R), R(0)))
     J = ideal(S, push!([vars[1]*F(p) for p in gens(I)], (vars[1]-1)*F(f)))
